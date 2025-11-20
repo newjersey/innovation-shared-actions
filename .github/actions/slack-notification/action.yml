@@ -1,0 +1,29 @@
+name: Slack Notification
+description: Utility action to send notifications to Slack channels.
+on:
+  workflow_call:
+    inputs:
+      channel_id:
+        description: 'The ID of the Slack channel to send the notification to.'
+        required: true
+        type: string
+      message:
+        description: 'The message content to send to the Slack channel.'
+        required: true
+        type: string
+      thread_message:
+        description: 'Message to be sent as a threaded reply.'
+        required: false
+        type: string
+
+env:
+  SLACK_BOT_TOKEN: ${{ secrets.SLACK_OAUTH_TOKEN }}
+  CHANNEL_ID: ${{ inputs.channel_id }}
+  MESSAGE: ${{ inputs.message }}
+  THREAD_MESSAGE: ${{ inputs.thread_message }}
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
