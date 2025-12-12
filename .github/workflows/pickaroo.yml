@@ -3,6 +3,26 @@ name: "Pickaroo Reviewers"
 on:
   workflow_call:
     inputs:
+      include_teams:
+        description: The github teams to pick reviewers from (space delimited)
+        type: "string"
+        required: false
+      exclude_teams:
+        description: The github teams to exclude reviewers from (space delimited)
+        type: "string"
+        required: false
+      include_users:
+        description: Individual GitHub usernames to include (space delimited)
+        type: "string"
+        required: false
+      exclude_users:
+        description: Individual GitHub usernames to exclude (space delimited)
+        type: "string"
+        required: false
+      number_of_reviewers:
+        default: 1
+        type: number
+        description: The number of reviewers to select
       channel_id:
         required: true
         description: The Slack Channel ID to notify
@@ -19,7 +39,7 @@ jobs:
     permissions:
       contents: read
     outputs:
-      selected-reviewers: ${{ steps.request-reviewers.outputs.selected-reviewers }}
+      reviewers: ${{ steps.request-reviewers.outputs.reviewers }}
     steps:
       - name: Generate GitHub App Token
         id: generate_token
@@ -32,46 +52,49 @@ jobs:
         id: request-reviewers
         uses: ./.github/actions/pickaroo
         with:
-          include-teams: "innovation-platform-eng"
-          exclude-teams: "business-dev resx-ccm-project"
-          number-of-reviewers: 8
+          include_teams: ${{ inputs.include_teams }}
+          include_users: ${{ inputs.include_users }}
+          exclude_teams: ${{ inputs.exclude_users }}
+          exclude_users: ${{ inputs.exclude_teams }}
+          number_of_reviewers: ${{ inputs.number_of_reviewers }}
           token: ${{ steps.generate_token.outputs.token }}
 
   post-slack-message:
     needs: request-reviewers
+    if: ${{ needs.request-reviewers.outputs.reviewers != '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@v6
-      - name: "Map slack ids to usernames"
-        id: map-slack-ids
+      - name: "Build GitHub to Slack user mapping"
+        id: build-user-map
+        uses: ./.github/actions/build-github-slack-user-map
+        with:
+          token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          slack_field: "Xf0A3AH8QTS6"
+      - name: "Look up Slack user IDs"
+        id: lookup-slack-users
+        uses: ./.github/actions/lookup-slack-users
+        with:
+          github_usernames: ${{ needs.request-reviewers.outputs.reviewers }}
+          github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
+      - name: Build mentions
+        id: build-mentions
         shell: bash
         run: |
-          REVIEWERS_STRING='${{ needs.request-reviewers.outputs.selected-reviewers }}'
+          SLACK_USERS='${{ steps.lookup-slack-users.outputs.slack_users }}'
+          GITHUB_USERS='${{ steps.lookup-slack-users.outputs.github_users }}'
 
-          if [ -n "$REVIEWERS_STRING" ]; then
-            REVIEWERS_JSON=$(echo "$REVIEWERS_STRING" | tr ' ' '\n' | jq -R -s 'split("\n") | map(select(length > 0))')
-            GH_SLACK_MAPPING='${{ vars.GH_SLACK_IDS }}'
-            SLACK_MENTIONS=$(echo "$REVIEWERS_JSON" | jq -r --argjson mapping "$GH_SLACK_MAPPING" '
-              map(. as $user | 
-                if $mapping[$user] then 
-                  "<@" + $mapping[$user] + ">" 
-                else 
-                  "@" + $user 
-                end
-              ) | 
-              join(", ")
-            ')
-          else
-            SLACK_MENTIONS=""
-          fi
+          ALL_MENTIONS=$(echo "$SLACK_USERS $GITHUB_USERS" | jq -r -s '
+            (.[0] | map("<@" + . + ">")) + (.[1] | map("@" + .)) | join(", ")
+          ')
 
-          echo "slack-mentions=$SLACK_MENTIONS" >> $GITHUB_OUTPUT
+          echo "mentions=$ALL_MENTIONS" >> $GITHUB_OUTPUT
       - name: Send Slack message
         uses: ./.github/actions/slack-message
         with:
           channel_id: ${{ inputs.channel_id }}
           message: "[ <${{ github.event.pull_request.html_url }}|PR Review> ] ${{ github.event.repository.name }} - #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}"
-          thread_message: "Hey ${{ steps.map-slack-ids.outputs.slack-mentions }} 🫵! Pickaroo here 🦘👋 Please review the above pull request 🙏🕵️"
+          thread_message: "Hey ${{ steps.build-mentions.outputs.mentions }} 🫵! Pickaroo here 🦘👋 Please review the above pull request 🙏🕵️"
           token: ${{ secrets.SLACK_OAUTH_TOKEN }}

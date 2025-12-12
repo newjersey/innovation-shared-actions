@@ -15,4 +15,6 @@ jobs:
     permissions:
       contents: read
     with:
+      include_users: "jviall jasnoo hinzed1127 josephine-njooi"
+      number_of_reviewers: 1
       channel_id: C09Q36G9HMX

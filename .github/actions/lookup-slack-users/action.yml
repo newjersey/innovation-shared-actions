@@ -1,0 +1,66 @@
+name: "Slack User Lookup"
+description: "Look up Slack user IDs based on GitHub usernames using a pre-built mapping"
+inputs:
+  github_usernames:
+    description: "Space-delimited string of GitHub usernames to look up"
+    required: true
+  github_slack_mapping:
+    description: "JSON string of an object mapping GitHub usernames to Slack user IDs"
+    required: true
+
+outputs:
+  slack_users:
+    description: "JSON array of Slack user IDs that were matched"
+    value: ${{ steps.build-mentions.outputs.slack-users || steps.handle-empty.outputs.slack-users }}
+  github_users:
+    description: "JSON array of GitHub usernames that couldn't be matched to Slack users"
+    value: ${{ steps.build-mentions.outputs.github-users || steps.handle-empty.outputs.github-users }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Validate inputs
+      id: validate
+      shell: bash
+      run: |
+        if [ -z '${{ inputs.github_usernames }}' ]; then
+          echo "has-usernames=false" >> $GITHUB_OUTPUT
+        else
+          echo "has-usernames=true" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Build mentions and find unmatched
+      id: build-mentions
+      if: steps.validate.outputs.has-usernames == 'true'
+      shell: bash
+      run: |
+        GITHUB_USERNAMES='${{ inputs.github_usernames }}'
+        GITHUB_SLACK_MAP='${{ inputs.github_slack_mapping }}'
+
+        IFS=' ' read -ra USERNAME_ARRAY <<< "$GITHUB_USERNAMES"
+
+        SLACK_USERS="[]"
+        GITHUB_USERS="[]"
+
+        for github_username in "${USERNAME_ARRAY[@]}"; do
+          if [ -n "$github_username" ]; then
+            SLACK_USER_ID=$(echo "$GITHUB_SLACK_MAP" | jq -r --arg github_user "$github_username" '.[$github_user] // ""')
+            
+            if [ -n "$SLACK_USER_ID" ] && [ "$SLACK_USER_ID" != "null" ] && [ "$SLACK_USER_ID" != "" ]; then
+              SLACK_USERS=$(echo "$SLACK_USERS" | jq --arg user_id "$SLACK_USER_ID" '. + [$user_id]')
+            else
+              GITHUB_USERS=$(echo "$GITHUB_USERS" | jq --arg username "$github_username" '. + [$username]')
+            fi
+          fi
+        done
+
+        echo "slack-users=$(echo "$SLACK_USERS" | jq -c .)" >> $GITHUB_OUTPUT
+        echo "github-users=$(echo "$GITHUB_USERS" | jq -c .)" >> $GITHUB_OUTPUT
+
+    - name: Handle empty input
+      id: handle-empty
+      if: steps.validate.outputs.has-usernames == 'false'
+      shell: bash
+      run: |
+        echo "slack-users=[]" >> $GITHUB_OUTPUT
+        echo "github-users=[]" >> $GITHUB_OUTPUT

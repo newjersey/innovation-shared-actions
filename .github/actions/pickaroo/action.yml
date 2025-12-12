@@ -1,12 +1,19 @@
 name: "Pickaroo Reviewers"
 description: "Selects a number of random reviewers from included and excluded teams"
 inputs:
-  include-teams:
+  include_teams:
     description: The github teams to pick reviewers from (space delimited)
-    required: true
-  exclude-teams:
+    required: false
+  exclude_teams:
     description: The github teams to exclude reviewers from (space delimited)
-  number-of-reviewers:
+    required: false
+  include_users:
+    description: Individual GitHub usernames to include (space delimited)
+    required: false
+  exclude_users:
+    description: Individual GitHub usernames to exclude (space delimited)
+    required: false
+  number_of_reviewers:
     default: "1"
     description: The number of reviewers to select
   token:
@@ -14,7 +21,7 @@ inputs:
     required: true
 
 outputs:
-  selected-reviewers:
+  reviewers:
     description: "Space-delimited string of selected reviewer usernames"
     value: ${{ steps.select-reviewers.outputs.reviewers }}
 
@@ -27,33 +34,58 @@ runs:
       run: |
         PR_AUTHOR="${{ github.event.pull_request.user.login }}"
 
+        # Get members from all include teams
         TEAM_MEMBERS="[]"
-        for team in ${{ inputs.include-teams }}; do
-          MEMBERS=$(gh api orgs/newjersey/teams/$team/members --jq 'map(.login)')
-          TEAM_MEMBERS=$(echo "$TEAM_MEMBERS $MEMBERS" | jq -s 'add | unique')
-        done
-        echo "included $TEAM_MEMBERS"
+        if [ -n "${{ inputs.include_teams }}" ]; then
+          for team in ${{ inputs.include_teams }}; do
+            MEMBERS=$(gh api orgs/newjersey/teams/$team/members --jq 'map(.login)')
+            TEAM_MEMBERS=$(echo "$TEAM_MEMBERS $MEMBERS" | jq -s 'add | unique')
+          done
+        fi
+        echo "included teams $TEAM_MEMBERS"
 
+        # Add individual include users
+        INCLUDE_USERS="[]"
+        if [ -n "${{ inputs.include_users }}" ]; then
+          INCLUDE_USERS=$(echo "${{ inputs.include_users }}" | tr ' ' '\n' | jq -R -s 'split("\n") | map(select(length > 0))')
+        fi
+        echo "included users $INCLUDE_USERS"
+
+        # Combine team members and individual users
+        ALL_INCLUDED=$(echo "$TEAM_MEMBERS $INCLUDE_USERS" | jq -s 'add | unique')
+        echo "all included $ALL_INCLUDED"
+
+        # Get members from all exclude teams
         EXCLUDE_MEMBERS="[]"
-        if [ -n "${{ inputs.exclude-teams }}" ]; then
-          for team in ${{ inputs.exclude-teams }}; do
+        if [ -n "${{ inputs.exclude_teams }}" ]; then
+          for team in ${{ inputs.exclude_teams }}; do
             MEMBERS=$(gh api orgs/newjersey/teams/$team/members --jq 'map(.login)')
             EXCLUDE_MEMBERS=$(echo "$EXCLUDE_MEMBERS $MEMBERS" | jq -s 'add | unique')
           done
         fi
-        echo "excluded $EXCLUDE_MEMBERS"
+
+        # Add individual exclude users
+        EXCLUDE_USERS="[]"
+        if [ -n "${{ inputs.exclude_users }}" ]; then
+          EXCLUDE_USERS=$(echo "${{ inputs.exclude_users }}" | tr ' ' '\n' | jq -R -s 'split("\n") | map(select(length > 0))')
+        fi
+
+        # Combine excluded team members and individual users
+        ALL_EXCLUDED=$(echo "$EXCLUDE_MEMBERS $EXCLUDE_USERS" | jq -s 'add | unique')
+        echo "all excluded $ALL_EXCLUDED"
 
         EXISTING_REVIEWERS=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/requested_reviewers --jq '.users | map(.login)')
         echo "existing reviewers $EXISTING_REVIEWERS"
 
         COLLABORATORS=$(gh api repos/${{ github.repository }}/collaborators --jq 'map(.login)')
 
-        FILTERED_MEMBERS=$(echo $TEAM_MEMBERS | jq -r --arg author "$PR_AUTHOR"\
-          --argjson exclude "$EXCLUDE_MEMBERS"\
+        FILTERED_MEMBERS=$(echo $ALL_INCLUDED | jq -r --arg author "$PR_AUTHOR"\
+          --argjson exclude "$ALL_EXCLUDED"\
           --argjson existing "$EXISTING_REVIEWERS"\
           --argjson collaborators "$COLLABORATORS" 'map(select(. != $author and (. as $member | $exclude | index($member) | not) and (. as $member | $existing | index($member) | not) and (. as $member | $collaborators | index($member)))) | unique | .[]')
         echo "filtered $FILTERED_MEMBERS"
-        RANDOM_ASSIGNEES=$(echo "$FILTERED_MEMBERS" | shuf -n ${{ inputs.number-of-reviewers }} )
+
+        RANDOM_ASSIGNEES=$(echo "$FILTERED_MEMBERS" | shuf -n ${{ inputs.number_of_reviewers }} )
         echo "reviewers $RANDOM_ASSIGNEES"
 
         if [ -n "$RANDOM_ASSIGNEES" ]; then

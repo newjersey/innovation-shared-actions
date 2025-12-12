@@ -1,0 +1,77 @@
+name: "Build GitHub to Slack User Map"
+description: "Builds a JSON mapping of GitHub usernames to Slack user IDs from Slack profile fields"
+inputs:
+  token:
+    description: "Slack OAuth token with users:read and users:profile:read scopes"
+    required: true
+  slack_field:
+    description: "The key on the slack profile 'fields' property that would contain a users github handle."
+    required: true
+
+outputs:
+  github_slack_mapping:
+    description: "JSON object mapping GitHub usernames to Slack user IDs"
+    value: ${{ steps.build-mapping.outputs.github-slack-mapping }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Fetch all Slack users
+      id: fetch-users
+      shell: bash
+      run: |
+        > /tmp/active_user_ids.txt
+        CURSOR=""
+
+        while true; do
+          if [ -z "$CURSOR" ]; then
+            USERS_RESPONSE=$(curl -s -X GET "https://slack.com/api/users.list?limit=300" \
+              -H "Authorization: Bearer ${{ inputs.token }}")
+          else
+            USERS_RESPONSE=$(curl -s -X GET "https://slack.com/api/users.list?limit=300&cursor=$CURSOR" \
+              -H "Authorization: Bearer ${{ inputs.token }}")
+          fi
+          
+          if [ "$(echo "$USERS_RESPONSE" | jq -r '.ok')" != "true" ]; then
+            echo "Error fetching users: $(echo "$USERS_RESPONSE" | jq -r '.error')"
+            exit 1
+          fi
+          
+          PAGE_ACTIVE_IDS=$(echo "$USERS_RESPONSE" | jq -r '.members | map(select((.deleted // false) == false and (.is_bot // false) == false and .name != "slackbot")) | .[].id')
+          
+          if [ -n "$PAGE_ACTIVE_IDS" ]; then
+            echo "$PAGE_ACTIVE_IDS" >> /tmp/active_user_ids.txt
+          fi
+          
+          NEXT_CURSOR=$(echo "$USERS_RESPONSE" | jq -r '.response_metadata.next_cursor // ""')
+          
+          if [ -z "$NEXT_CURSOR" ] || [ "$NEXT_CURSOR" = "null" ]; then
+            break
+          fi
+          
+          CURSOR="$NEXT_CURSOR"
+        done
+
+        echo "active-user-ids-file=/tmp/active_user_ids.txt" >> $GITHUB_OUTPUT
+
+    - name: Build GitHub to Slack mapping
+      id: build-mapping
+      shell: bash
+      run: |
+        ACTIVE_USER_IDS=$(cat ${{ steps.fetch-users.outputs.active-user-ids-file }})
+        GITHUB_SLACK_MAP="{}"
+
+        while IFS= read -r user_id; do
+          if [ -n "$user_id" ]; then
+            PROFILE_RESPONSE=$(curl -s -X GET "https://slack.com/api/users.profile.get?user=$user_id" \
+              -H "Authorization: Bearer ${{ inputs.token }}")
+            
+            GITHUB_USERNAME=$(echo "$PROFILE_RESPONSE" | jq -r '.profile.fields.${{ inputs.slack_field }}.value // ""')
+            
+            if [ -n "$GITHUB_USERNAME" ] && [ "$GITHUB_USERNAME" != "null" ] && [ "$GITHUB_USERNAME" != "" ]; then
+              GITHUB_SLACK_MAP=$(echo "$GITHUB_SLACK_MAP" | jq --arg github_user "$GITHUB_USERNAME" --arg slack_id "$user_id" '. + {($github_user): $slack_id}')
+            fi
+          fi
+        done <<< "$ACTIVE_USER_IDS"
+
+        echo "github-slack-mapping=$(echo "$GITHUB_SLACK_MAP" | jq -c .)" >> $GITHUB_OUTPUT
