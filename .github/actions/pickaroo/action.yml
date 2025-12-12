@@ -1,0 +1,77 @@
+name: "Pickaroo Reviewers"
+description: "Selects a number of random reviewers from included and excluded teams"
+inputs:
+  include-teams:
+    description: The github teams to pick reviewers from (space delimited)
+    required: true
+  exclude-teams:
+    description: The github teams to exclude reviewers from (space delimited)
+  number-of-reviewers:
+    default: "1"
+    description: The number of reviewers to select
+  token:
+    description: a github token with permissions to read org teams and modify pull requests
+    required: true
+
+outputs:
+  selected-reviewers:
+    description: "Space-delimited string of selected reviewer usernames"
+    value: ${{ steps.select-reviewers.outputs.reviewers }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Select reviewers
+      id: select-reviewers
+      shell: bash
+      run: |
+        PR_AUTHOR="${{ github.event.pull_request.user.login }}"
+
+        TEAM_MEMBERS="[]"
+        for team in ${{ inputs.include-teams }}; do
+          MEMBERS=$(gh api orgs/newjersey/teams/$team/members --jq 'map(.login)')
+          TEAM_MEMBERS=$(echo "$TEAM_MEMBERS $MEMBERS" | jq -s 'add | unique')
+        done
+        echo "included $TEAM_MEMBERS"
+
+        EXCLUDE_MEMBERS="[]"
+        if [ -n "${{ inputs.exclude-teams }}" ]; then
+          for team in ${{ inputs.exclude-teams }}; do
+            MEMBERS=$(gh api orgs/newjersey/teams/$team/members --jq 'map(.login)')
+            EXCLUDE_MEMBERS=$(echo "$EXCLUDE_MEMBERS $MEMBERS" | jq -s 'add | unique')
+          done
+        fi
+        echo "excluded $EXCLUDE_MEMBERS"
+
+        EXISTING_REVIEWERS=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/requested_reviewers --jq '.users | map(.login)')
+        echo "existing reviewers $EXISTING_REVIEWERS"
+
+        COLLABORATORS=$(gh api repos/${{ github.repository }}/collaborators --jq 'map(.login)')
+
+        FILTERED_MEMBERS=$(echo $TEAM_MEMBERS | jq -r --arg author "$PR_AUTHOR"\
+          --argjson exclude "$EXCLUDE_MEMBERS"\
+          --argjson existing "$EXISTING_REVIEWERS"\
+          --argjson collaborators "$COLLABORATORS" 'map(select(. != $author and (. as $member | $exclude | index($member) | not) and (. as $member | $existing | index($member) | not) and (. as $member | $collaborators | index($member)))) | unique | .[]')
+        echo "filtered $FILTERED_MEMBERS"
+        RANDOM_ASSIGNEES=$(echo "$FILTERED_MEMBERS" | shuf -n ${{ inputs.number-of-reviewers }} )
+        echo "reviewers $RANDOM_ASSIGNEES"
+
+        if [ -n "$RANDOM_ASSIGNEES" ]; then
+          REVIEWERS_JSON=$(echo "$RANDOM_ASSIGNEES" | jq -R -s 'split("\n") | map(select(length > 0))')
+          
+          # Set output as space-delimited string
+          REVIEWERS_STRING=$(echo "$RANDOM_ASSIGNEES" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+          echo "reviewers=$REVIEWERS_STRING" >> $GITHUB_OUTPUT
+          
+          curl -L -s \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${{ inputs.token }}" \
+            https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/requested_reviewers \
+            -d "{\"reviewers\":$REVIEWERS_JSON}"
+        else
+          echo "reviewers=" >> $GITHUB_OUTPUT
+          echo "No available members to request review from based on filters"
+        fi
+      env:
+        GH_TOKEN: ${{ inputs.token }}

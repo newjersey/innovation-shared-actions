@@ -39,6 +39,7 @@ jobs:
               channel: "${{ env.CHANNEL_ID }}"
               text: "${{ env.MESSAGE }}"
       - name: Follow up message
+        if: ${{ inputs.thread_message != '' }}
         uses: slackapi/slack-github-action@v2
         id: follow_up
         with:
@@ -48,4 +49,3 @@ jobs:
             channel: "${{ env.CHANNEL_ID }}"
             thread_ts: "${{ steps.slack_thread.outputs.ts }}"
             text: "${{ env.THREAD_MESSAGE }}"
-            
