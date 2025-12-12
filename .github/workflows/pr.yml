@@ -1,4 +1,4 @@
-name: 'Pull Request Notification'
+name: 'Pull Request Review'
 
 on:
     pull_request:
