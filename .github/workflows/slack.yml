@@ -1,6 +1,6 @@
 # Docs: https://docs.slack.dev/tools/slack-github-action/sending-techniques/sending-data-slack-api-method/
 
-name: 'Slack Notification'
+name: "Slack Notification"
 
 on:
   workflow_call:
@@ -18,34 +18,15 @@ on:
       SLACK_OAUTH_TOKEN:
         required: false
 
-env:
-  SLACK_BOT_TOKEN: ${{ secrets.SLACK_OAUTH_TOKEN }}
-  CHANNEL_ID: ${{ inputs.channel_id }}
-  MESSAGE: ${{ inputs.message }}
-  THREAD_MESSAGE: ${{ inputs.thread_message }}
-
 jobs:
-  alert-slack:
+  send-slack-message:
     runs-on: ubuntu-latest
     steps:
-      - name: Send message the Slack channel
-        uses: slackapi/slack-github-action@v2
-        id: slack_thread
+      - uses: actions/checkout@v5
+      - name: Send Slack message
+        uses: ./.github/actions/slack-message
         with:
-            errors: true
-            method: chat.postMessage
-            token: ${{ env.SLACK_BOT_TOKEN }}
-            payload: |
-              channel: "${{ env.CHANNEL_ID }}"
-              text: "${{ env.MESSAGE }}"
-      - name: Follow up message
-        if: ${{ inputs.thread_message != '' }}
-        uses: slackapi/slack-github-action@v2
-        id: follow_up
-        with:
-          method: chat.postMessage
-          token: ${{ env.SLACK_BOT_TOKEN }}
-          payload: |
-            channel: "${{ env.CHANNEL_ID }}"
-            thread_ts: "${{ steps.slack_thread.outputs.ts }}"
-            text: "${{ env.THREAD_MESSAGE }}"
+          channel_id: ${{ inputs.channel_id }}
+          message: ${{ inputs.message }}
+          thread_message: ${{ inputs.thread_message }}
+          token: ${{ secrets.SLACK_OAUTH_TOKEN }}
