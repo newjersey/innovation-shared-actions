@@ -106,4 +106,4 @@ runs:
           echo "No available members to request review from based on filters"
         fi
       env:
-        GH_TOKEN: ${{ inputs.token }}
+        GITHUB_TOKEN: ${{ inputs.token }}

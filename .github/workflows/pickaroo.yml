@@ -67,12 +67,6 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v6
-      - name: "Build GitHub to Slack user mapping"
-        id: build-user-map
-        uses: ./.github/actions/build-github-slack-user-map
-        with:
-          token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_field: "Xf0A3AH8QTS6"
       - name: "Look up Slack user IDs"
         id: lookup-slack-users
         uses: ./.github/actions/lookup-slack-users
