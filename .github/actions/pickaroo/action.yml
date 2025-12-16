@@ -83,10 +83,9 @@ runs:
           --argjson exclude "$ALL_EXCLUDED"\
           --argjson existing "$EXISTING_REVIEWERS"\
           --argjson collaborators "$COLLABORATORS" 'map(select(. != $author and (. as $member | $exclude | index($member) | not) and (. as $member | $existing | index($member) | not) and (. as $member | $collaborators | index($member)))) | unique | .[]')
-        echo "filtered $FILTERED_MEMBERS"
 
         RANDOM_ASSIGNEES=$(echo "$FILTERED_MEMBERS" | shuf -n ${{ inputs.number_of_reviewers }} )
-        echo "reviewers $RANDOM_ASSIGNEES"
+        echo "Selected reviewers: $RANDOM_ASSIGNEES"
 
         if [ -n "$RANDOM_ASSIGNEES" ]; then
           REVIEWERS_JSON=$(echo "$RANDOM_ASSIGNEES" | jq -R -s 'split("\n") | map(select(length > 0))')
