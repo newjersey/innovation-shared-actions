@@ -22,7 +22,7 @@ jobs:
   send-slack-message:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
       - name: Send Slack message
         uses: ./.github/actions/slack-message
         with:
