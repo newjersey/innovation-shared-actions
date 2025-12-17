@@ -1,0 +1,94 @@
+name: "Pickaroo Reviewers"
+
+on:
+  workflow_call:
+    inputs:
+      include_teams:
+        description: The github teams to pick reviewers from (space delimited)
+        type: "string"
+        required: false
+      exclude_teams:
+        description: The github teams to exclude reviewers from (space delimited)
+        type: "string"
+        required: false
+      include_users:
+        description: Individual GitHub usernames to include (space delimited)
+        type: "string"
+        required: false
+      exclude_users:
+        description: Individual GitHub usernames to exclude (space delimited)
+        type: "string"
+        required: false
+      number_of_reviewers:
+        default: 1
+        type: number
+        description: The number of reviewers to select
+      channel_id:
+        required: true
+        description: The Slack Channel ID to notify
+        type: string
+    secrets:
+      SLACK_OAUTH_TOKEN:
+        required: false
+      OOI_PULL_REQUEST_APP:
+        required: false
+
+jobs:
+  request-reviewers:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      reviewers: ${{ steps.request-reviewers.outputs.reviewers }}
+    steps:
+      - name: Generate GitHub App Token
+        id: generate_token
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
+        with:
+          app-id: "2454947"
+          private-key: ${{ secrets.OOI_PULL_REQUEST_APP }}
+      - uses: actions/checkout@v6
+      - name: Request Reviewers
+        id: request-reviewers
+        uses: ./.github/actions/pickaroo
+        with:
+          include_teams: ${{ inputs.include_teams }}
+          include_users: ${{ inputs.include_users }}
+          exclude_teams: ${{ inputs.exclude_users }}
+          exclude_users: ${{ inputs.exclude_teams }}
+          number_of_reviewers: ${{ inputs.number_of_reviewers }}
+          token: ${{ steps.generate_token.outputs.token }}
+
+  post-slack-message:
+    needs: request-reviewers
+    if: ${{ needs.request-reviewers.outputs.reviewers != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+      - name: "Look up Slack user IDs"
+        id: lookup-slack-users
+        uses: ./.github/actions/lookup-slack-users
+        with:
+          github_usernames: ${{ needs.request-reviewers.outputs.reviewers }}
+          github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
+      - name: Build mentions
+        id: build-mentions
+        shell: bash
+        run: |
+          SLACK_USERS='${{ steps.lookup-slack-users.outputs.slack_users }}'
+          GITHUB_USERS='${{ steps.lookup-slack-users.outputs.github_users }}'
+
+          ALL_MENTIONS=$(echo "$SLACK_USERS $GITHUB_USERS" | jq -r -s '
+            (.[0] | map("<@" + . + ">")) + (.[1] | map("@" + .)) | join(", ")
+          ')
+
+          echo "mentions=$ALL_MENTIONS" >> $GITHUB_OUTPUT
+      - name: Send Slack message
+        uses: ./.github/actions/slack-message
+        with:
+          channel_id: ${{ inputs.channel_id }}
+          message: "[ <${{ github.event.pull_request.html_url }}|PR Review> ] ${{ github.event.repository.name }} - #${{ github.event.pull_request.number }}: ${{ github.event.pull_request.title }}"
+          thread_message: "Hey ${{ steps.build-mentions.outputs.mentions }} 🫵! Pickaroo here 🦘👋 Please review the above pull request 🙏🕵️"
+          token: ${{ secrets.SLACK_OAUTH_TOKEN }}

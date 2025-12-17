@@ -1,0 +1,45 @@
+name: "Slack Message"
+description: "Send a message to Slack with optional thread reply"
+inputs:
+  channel_id:
+    description: "Slack channel ID"
+    required: true
+  message:
+    description: "Main message to send"
+    required: true
+  thread_message:
+    description: "Optional thread reply message"
+    required: false
+  token:
+    description: "Slack OAuth token"
+    required: true
+
+outputs:
+  message_ts:
+    description: "Timestamp of the main message"
+    value: ${{ steps.main_message.outputs.ts }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Send main message to Slack channel
+      uses: slackapi/slack-github-action@v2
+      id: main_message
+      with:
+        errors: true
+        method: chat.postMessage
+        token: ${{ inputs.token }}
+        payload: |
+          channel: "${{ inputs.channel_id }}"
+          text: "${{ inputs.message }}"
+    - name: Send thread reply
+      if: ${{ inputs.thread_message != '' }}
+      uses: slackapi/slack-github-action@v2
+      id: thread_reply
+      with:
+        method: chat.postMessage
+        token: ${{ inputs.token }}
+        payload: |
+          channel: "${{ inputs.channel_id }}"
+          thread_ts: "${{ steps.main_message.outputs.ts }}"
+          text: "${{ inputs.thread_message }}"
