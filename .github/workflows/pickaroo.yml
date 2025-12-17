@@ -48,6 +48,8 @@ jobs:
           app-id: "2454947"
           private-key: ${{ secrets.OOI_PULL_REQUEST_APP }}
       - uses: actions/checkout@v6
+        with:
+          repository: newjersey/innovation-shared-actions
       - name: Request Reviewers
         id: request-reviewers
         uses: ./.github/actions/pickaroo
@@ -67,6 +69,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@v6
+        with:
+          repository: newjersey/innovation-shared-actions
       - name: "Look up Slack user IDs"
         id: lookup-slack-users
         uses: ./.github/actions/lookup-slack-users
