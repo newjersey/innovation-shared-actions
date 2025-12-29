@@ -1,66 +1,98 @@
 name: "Slack User Lookup"
 description: "Look up Slack user IDs based on GitHub usernames using a pre-built mapping"
 inputs:
-  github_usernames:
-    description: "Space-delimited string of GitHub usernames to look up"
-    required: true
   github_slack_mapping:
     description: "JSON string of an object mapping GitHub usernames to Slack user IDs"
     required: true
+  github_usernames:
+    description: "Space-delimited string of GitHub usernames to look up"
 
 outputs:
   slack_users:
     description: "JSON array of Slack user IDs that were matched"
-    value: ${{ steps.build-mentions.outputs.slack-users || steps.handle-empty.outputs.slack-users }}
+    value: ${{ steps.lookup.outputs.slack-users }}
   github_users:
     description: "JSON array of GitHub usernames that couldn't be matched to Slack users"
-    value: ${{ steps.build-mentions.outputs.github-users || steps.handle-empty.outputs.github-users }}
+    value: ${{ steps.lookup.outputs.github-users }}
+  pr_author:
+    description: "Slack user ID of the PR author if found, else GitHub username"
+    value: ${{ steps.lookup.outputs.pr-author }}
+  commit_author:
+    description: "Slack user ID of the latest commit author if found, else GitHub username"
+    value: ${{ steps.lookup.outputs.commit-author }}
+  workflow_actor:
+    description: "Slack user ID of the workflow actor if found, else GitHub username"
+    value: ${{ steps.lookup.outputs.workflow-actor }}
 
 runs:
   using: "composite"
   steps:
-    - name: Validate inputs
-      id: validate
-      shell: bash
-      run: |
-        if [ -z '${{ inputs.github_usernames }}' ]; then
-          echo "has-usernames=false" >> $GITHUB_OUTPUT
-        else
-          echo "has-usernames=true" >> $GITHUB_OUTPUT
-        fi
-
-    - name: Build mentions and find unmatched
-      id: build-mentions
-      if: steps.validate.outputs.has-usernames == 'true'
+    - name: Lookup users from inputs
+      id: lookup-input-users
       shell: bash
       run: |
         GITHUB_USERNAMES='${{ inputs.github_usernames }}'
         GITHUB_SLACK_MAP='${{ inputs.github_slack_mapping }}'
 
-        IFS=' ' read -ra USERNAME_ARRAY <<< "$GITHUB_USERNAMES"
-
         SLACK_USERS="[]"
         GITHUB_USERS="[]"
 
-        for github_username in "${USERNAME_ARRAY[@]}"; do
-          if [ -n "$github_username" ]; then
-            SLACK_USER_ID=$(echo "$GITHUB_SLACK_MAP" | jq -r --arg github_user "$github_username" '.[$github_user] // ""')
-            
-            if [ -n "$SLACK_USER_ID" ] && [ "$SLACK_USER_ID" != "null" ] && [ "$SLACK_USER_ID" != "" ]; then
-              SLACK_USERS=$(echo "$SLACK_USERS" | jq --arg user_id "$SLACK_USER_ID" '. + [$user_id]')
-            else
-              GITHUB_USERS=$(echo "$GITHUB_USERS" | jq --arg username "$github_username" '. + [$username]')
+        if [ -n "$GITHUB_USERNAMES" ]; then
+          IFS=' ' read -ra USERNAME_ARRAY <<< "$GITHUB_USERNAMES"
+
+          for github_username in "${USERNAME_ARRAY[@]}"; do
+            if [ -n "$github_username" ]; then
+              SLACK_USER_ID=$(echo "$GITHUB_SLACK_MAP" | jq -r --arg github_user "$github_username" '.[$github_user] // ""')
+              
+              if [ -n "$SLACK_USER_ID" ] && [ "$SLACK_USER_ID" != "null" ] && [ "$SLACK_USER_ID" != "" ]; then
+                SLACK_USERS=$(echo "$SLACK_USERS" | jq --arg user_id "$SLACK_USER_ID" '. + [$user_id]')
+              else
+                GITHUB_USERS=$(echo "$GITHUB_USERS" | jq --arg username "$github_username" '. + [$username]')
+              fi
             fi
-          fi
-        done
+          done
+        fi
 
         echo "slack-users=$(echo "$SLACK_USERS" | jq -c .)" >> $GITHUB_OUTPUT
         echo "github-users=$(echo "$GITHUB_USERS" | jq -c .)" >> $GITHUB_OUTPUT
 
-    - name: Handle empty input
-      id: handle-empty
-      if: steps.validate.outputs.has-usernames == 'false'
+    - name: Lookup users from GitHub event
+      id: lookup-event-users
       shell: bash
       run: |
-        echo "slack-users=[]" >> $GITHUB_OUTPUT
-        echo "github-users=[]" >> $GITHUB_OUTPUT
+        GITHUB_USERNAMES='${{ inputs.github_usernames }}'
+        GITHUB_SLACK_MAP='${{ inputs.github_slack_mapping }}'
+
+        PR_AUTHOR="${{ github.event.pull_request.user.login }}"
+        PR_AUTHOR_SLACK=$(echo "$GITHUB_SLACK_MAP" | jq -r --arg github_user "$PR_AUTHOR" '.[$github_user] // ""')
+
+        if [ -n "$PR_AUTHOR_SLACK" ] && [ "$PR_AUTHOR_SLACK" != "null" ] && [ "$PR_AUTHOR_SLACK" != "" ]; then
+          echo "pr-author=<@$PR_AUTHOR_SLACK>" >> $GITHUB_OUTPUT
+        else
+          echo "pr-author=@$PR_AUTHOR" >> $GITHUB_OUTPUT
+        fi
+
+        COMMIT_AUTHOR="${{ github.event.pull_request.head.repo.owner.login }}"
+        if [ "${{ github.event_name }}" = "pull_request" ]; then
+          # Get the actual commit author from the latest commit
+          COMMIT_AUTHOR=$(gh api repos/${{ github.repository }}/commits/${{ github.event.pull_request.head.sha }} --jq '.author.login // .commit.author.name')
+        fi
+        COMMIT_AUTHOR_SLACK=$(echo "$GITHUB_SLACK_MAP" | jq -r --arg github_user "$COMMIT_AUTHOR" '.[$github_user] // ""')
+
+        if [ -n "$COMMIT_AUTHOR_SLACK" ] && [ "$COMMIT_AUTHOR_SLACK" != "null" ] && [ "$COMMIT_AUTHOR_SLACK" != "" ]; then
+          echo "commit-author=<@$COMMIT_AUTHOR_SLACK>" >> $GITHUB_OUTPUT
+        else
+          echo "commit-author=@$COMMIT_AUTHOR" >> $GITHUB_OUTPUT
+        fi
+
+        # Workflow Actor
+        WORKFLOW_ACTOR="${{ github.actor }}"
+        WORKFLOW_ACTOR_SLACK=$(echo "$GITHUB_SLACK_MAP" | jq -r --arg github_user "$WORKFLOW_ACTOR" '.[$github_user] // ""')
+
+        if [ -n "$WORKFLOW_ACTOR_SLACK" ] && [ "$WORKFLOW_ACTOR_SLACK" != "null" ] && [ "$WORKFLOW_ACTOR_SLACK" != "" ]; then
+          echo "workflow-actor=<@$WORKFLOW_ACTOR_SLACK>" >> $GITHUB_OUTPUT
+        else
+          echo "workflow-actor=@$WORKFLOW_ACTOR" >> $GITHUB_OUTPUT
+        fi
+      env:
+        GITHUB_TOKEN: ${{ github.token }}
