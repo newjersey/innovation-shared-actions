@@ -45,8 +45,8 @@ jobs:
         id: generate_token
         uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
         with:
-          app-id: "2454947"
-          private-key: ${{ secrets.OOI_PULL_REQUEST_APP }}
+          app-id: ${{ vars.OOI_PULL_REQUEST_APP_ID }}
+          private-key: ${{ secrets.OOI_PULL_REQUEST_APP_PRIVATE_KEY }}
       - uses: actions/checkout@v6
         with:
           repository: newjersey/innovation-shared-actions
