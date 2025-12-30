@@ -16,6 +16,7 @@ jobs:
       contents: read
     with:
       include_teams: "innovation-engineering"
+      exclude_users: "dhcole gamorgana"
       number_of_reviewers: 2
       channel_id: C03C7NHK9B4 # engineering-all
   test-request-reviewers:

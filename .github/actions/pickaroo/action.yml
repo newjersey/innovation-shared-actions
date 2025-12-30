@@ -16,6 +16,12 @@ inputs:
   number_of_reviewers:
     default: "1"
     description: The number of reviewers to select
+  github_slack_mapping:
+    description: "JSON string of an object mapping GitHub usernames to Slack user IDs. Used to filter reviewers by slack status"
+    required: false
+  slack_token:
+    description: "Required if you provide a value to github_slack_mapping"
+    required: false
   token:
     description: a github token with permissions to read org teams and modify pull requests
     required: true
@@ -83,6 +89,39 @@ runs:
           --argjson exclude "$ALL_EXCLUDED"\
           --argjson existing "$EXISTING_REVIEWERS"\
           --argjson collaborators "$COLLABORATORS" 'map(select(. != $author and (. as $member | $exclude | index($member) | not) and (. as $member | $existing | index($member) | not) and (. as $member | $collaborators | index($member)))) | unique | .[]')
+
+        # Filter out users based on Slack status if mapping is provided
+        if [ -n "${{ inputs.github_slack_mapping }}" ] && [ -n "${{ inputs.slack_token }}" ]; then
+          echo "Filtering based on Slack status..."
+          SLACK_FILTERED_MEMBERS=""
+          
+          for member in $FILTERED_MEMBERS; do
+            SLACK_USER_ID=$(echo '${{ inputs.github_slack_mapping }}' | jq -r --arg github_user "$member" '.[$github_user] // empty')
+            
+            if [ -n "$SLACK_USER_ID" ] && [ "$SLACK_USER_ID" != "null" ]; then
+              # Get user's Slack profile
+              PROFILE_RESPONSE=$(curl -s -X GET "https://slack.com/api/users.profile.get?user=$SLACK_USER_ID" \
+                -H "Authorization: Bearer ${{ inputs.slack_token }}")
+              
+              STATUS_TEXT=$(echo "$PROFILE_RESPONSE" | jq -r '.profile.status_text // ""')
+              STATUS_EMOJI=$(echo "$PROFILE_RESPONSE" | jq -r '.profile.status_emoji // ""')
+              
+              # Check if status indicates unavailability (case insensitive)
+              STATUS_LOWER=$(echo "$STATUS_TEXT $STATUS_EMOJI" | tr '[:upper:]' '[:lower:]')
+              
+              if echo "$STATUS_LOWER" | grep -qE "(out of office|ooo|sick|flu|vacation|unavailable|leave|travel|thermometer|mask|vomiting|palm_tree)"; then
+                echo "Filtering out $member due to Slack status: $STATUS_TEXT $STATUS_EMOJI"
+              else
+                SLACK_FILTERED_MEMBERS="$SLACK_FILTERED_MEMBERS$member\n"
+              fi
+            else
+              # If no Slack mapping found, include the user
+              SLACK_FILTERED_MEMBERS="$SLACK_FILTERED_MEMBERS$member\n"
+            fi
+          done
+          
+          FILTERED_MEMBERS=$(echo -e "$SLACK_FILTERED_MEMBERS" | grep -v '^$')
+        fi
 
         RANDOM_ASSIGNEES=$(echo "$FILTERED_MEMBERS" | shuf -n ${{ inputs.number_of_reviewers }} )
         echo "Selected reviewers: $RANDOM_ASSIGNEES"

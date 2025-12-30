@@ -59,6 +59,8 @@ jobs:
           exclude_teams: ${{ inputs.exclude_users }}
           exclude_users: ${{ inputs.exclude_teams }}
           number_of_reviewers: ${{ inputs.number_of_reviewers }}
+          github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
+          slack_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           token: ${{ steps.generate_token.outputs.token }}
 
   post-slack-message:
