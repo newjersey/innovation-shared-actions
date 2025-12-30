@@ -18,13 +18,13 @@ jobs:
         uses: ./.github/actions/build-github-slack-user-map
         with:
           token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_field: "Xf0A3AH8QTS6"
+          slack_field: "Xf0A3AH8QTS6" # Github Username custom field
       - name: Generate GitHub App Token
         id: generate_token
         uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
         with:
-          app-id: "2454947"
-          private-key: ${{ secrets.OOI_PULL_REQUEST_APP }}
+          app-id: ${{ vars.OOI_PULL_REQUEST_APP_ID }}
+          private-key: ${{ secrets.OOI_PULL_REQUEST_APP_PRIVATE_KEY }}
       - name: "Update organization variable"
         run: |
           gh variable set GH_SLACK_USER_MAP --body '${{ steps.build-user-map.outputs.github_slack_mapping }}' --org newjersey --visibility all
