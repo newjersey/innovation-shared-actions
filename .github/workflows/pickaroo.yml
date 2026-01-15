@@ -56,8 +56,8 @@ jobs:
         with:
           include_teams: ${{ inputs.include_teams }}
           include_users: ${{ inputs.include_users }}
-          exclude_teams: ${{ inputs.exclude_users }}
-          exclude_users: ${{ inputs.exclude_teams }}
+          exclude_teams: ${{ inputs.exclude_teams }}
+          exclude_users: ${{ inputs.exclude_users }}
           number_of_reviewers: ${{ inputs.number_of_reviewers }}
           github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
           slack_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
