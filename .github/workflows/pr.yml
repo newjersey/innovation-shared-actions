@@ -22,29 +22,16 @@ jobs:
       channel_id: C03C7NHK9B4 # engineering-all
   pr-show:
     if: ${{ github.event.label.name == 'pr-show' }}
-    runs-on: ubuntu-latest
+    uses: ./.github/workflows/pickaroo.yml
+    secrets: inherit
     permissions:
       contents: read
       pull-requests: write
-    steps:
-      - uses: actions/checkout@v6
-      - name: "Look up PR author in Slack"
-        id: lookup-pr-author
-        uses: ./.github/actions/lookup-slack-users
-        with:
-          github_usernames: ${{ github.event.pull_request.user.login }}
-          github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
-      - name: Send Slack message
-        uses: ./.github/actions/slack-message
-        with:
-          channel_id: C03C7NHK9B4 # engineering-all
-          message: "[ <${{ github.event.pull_request.html_url }}|PR Show> ] ${{
-            github.event.repository.name }} - #${{ github.event.pull_request.number }} by ${{
-            steps.lookup-pr-author.outputs.formatted_string }}:\n\n*${{
-            github.event.pull_request.title }}*"
-          token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-  test-pickaroo:
-    if: ${{ github.event.label.name == 'test-pickaroo' }}
+    with:
+      show: true
+      channel_id: C03C7NHK9B4 # engineering-all
+  test-pr-review:
+    if: ${{ github.event.label.name == 'test-pr-review' }}
     uses: ./.github/workflows/pickaroo.yml
     secrets: inherit
     permissions:
@@ -53,4 +40,14 @@ jobs:
     with:
       include_teams: "innovation-engineering"
       number_of_reviewers: 1
+      channel_id: C09Q36G9HMX # sandbox
+  test-pr-show:
+    if: ${{ github.event.label.name == 'test-pr-show' }}
+    uses: ./.github/workflows/pickaroo.yml
+    secrets: inherit
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      show: true
       channel_id: C09Q36G9HMX # sandbox
