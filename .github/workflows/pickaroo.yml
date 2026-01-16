@@ -23,6 +23,10 @@ on:
         default: 1
         type: number
         description: The number of reviewers to select
+      number_of_repicks:
+        default: 1
+        type: number
+        description: The number of reviewers to select on subsequent runs
       channel_id:
         required: true
         description: The Slack Channel ID to notify
@@ -38,8 +42,10 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      pull-requests: write
     outputs:
       reviewers: ${{ steps.request-reviewers.outputs.reviewers }}
+      message-ts: ${{ steps.check-comment.outputs.message-ts }}
     steps:
       - name: Generate GitHub App Token
         id: generate_token
@@ -47,6 +53,18 @@ jobs:
         with:
           app-id: "2454947"
           private-key: ${{ secrets.OOI_PULL_REQUEST_APP }}
+      - name: Check for existing pickaroo comment
+        id: check-comment
+        run: |
+          COMMENT=$(gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
+            --jq '[.[] | select(.user.login == "ooi-pull-request-app[bot]" and (.body | contains("message_ts:")))] | sort_by(.created_at) | last | {id: .id, body: .body} | @json')
+
+          if [ -n "$COMMENT" ] && [ "$COMMENT" != "null" ]; then
+            MESSAGE_TS=$(echo "$COMMENT" | jq -r '.body' | grep -o 'message_ts: [0-9]\+\.[0-9]\+' | cut -d' ' -f2)
+            echo "message-ts=$MESSAGE_TS" >> $GITHUB_OUTPUT
+          fi
+        env:
+          GITHUB_TOKEN: ${{ steps.generate_token.outputs.token }}
       - uses: actions/checkout@v6
         with:
           repository: newjersey/innovation-shared-actions
@@ -58,7 +76,7 @@ jobs:
           include_users: ${{ inputs.include_users }}
           exclude_teams: ${{ inputs.exclude_teams }}
           exclude_users: ${{ inputs.exclude_users }}
-          number_of_reviewers: ${{ inputs.number_of_reviewers }}
+          number_of_reviewers: ${{ steps.check-comment.outputs.message-ts != '' && inputs.number_of_repicks || inputs.number_of_reviewers }}
           github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
           slack_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           token: ${{ steps.generate_token.outputs.token }}
@@ -69,6 +87,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+    outputs:
+      message-ts: ${{ steps.send-slack-message.outputs.message_ts }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -86,9 +106,38 @@ jobs:
           github_usernames: ${{ github.event.pull_request.user.login }}
           github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
       - name: Send Slack message
+        id: send-slack-message
         uses: ./.github/actions/slack-message
         with:
           channel_id: ${{ inputs.channel_id }}
-          message: "[ <${{ github.event.pull_request.html_url }}|PR Review> ] ${{ github.event.repository.name }} - #${{ github.event.pull_request.number }} by ${{ steps.lookup-pr-author.outputs.formatted_string }}:\n\n*${{ github.event.pull_request.title }}*"
+          message: "[ <${{ github.event.pull_request.html_url }}|PR Review> ] ${{ github.event.repository.name }} - ${{ github.event.pull_request.number }} by ${{ steps.lookup-pr-author.outputs.formatted_string }}:\n\n*${{ github.event.pull_request.title }}*"
+          message_ts: ${{ needs.request-reviewers.outputs.message-ts }}
           thread_message: "Hey ${{ steps.lookup-slack-users.outputs.formatted_string }} 🫵! Pickaroo here 🦘👋 Please review the above pull request 🙏🕵️"
           token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+
+  post-pr-comment:
+    needs: [request-reviewers, post-slack-message]
+    if: ${{ needs.request-reviewers.outputs.message-ts == '' && needs.request-reviewers.result == 'success' && needs.post-slack-message.result == 'success' && needs.request-reviewers.outputs.reviewers != '' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Generate GitHub App Token
+        id: generate_token
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
+        with:
+          app-id: "2454947"
+          private-key: ${{ secrets.OOI_PULL_REQUEST_APP }}
+      - name: Post PR comment
+        run: |
+          MESSAGE_TS="${{ needs.post-slack-message.outputs.message-ts }}"
+          COMMENT_BODY="Pickaroo selected and notified reviewers for this PR! 🦘
+
+          message_ts: $MESSAGE_TS"
+
+          gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
+            -X POST \
+            -f body="$COMMENT_BODY"
+        env:
+          GITHUB_TOKEN: ${{ steps.generate_token.outputs.token }}
