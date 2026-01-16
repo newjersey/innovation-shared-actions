@@ -27,6 +27,10 @@ on:
         required: true
         description: The Slack Channel ID to notify
         type: string
+      show:
+        default: false
+        type: boolean
+        description: If true, only post a Slack message without selecting reviewers
     secrets:
       SLACK_OAUTH_TOKEN:
         required: false
@@ -34,12 +38,12 @@ on:
         required: false
 
 jobs:
-  generate-token:
+  request-reviewers:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
-      token: ${{ steps.generate_token.outputs.token }}
+      reviewers: ${{ steps.request-reviewers.outputs.reviewers }}
     steps:
       - name: Generate GitHub App Token
         id: generate_token
@@ -47,19 +51,16 @@ jobs:
         with:
           app-id: "2454947"
           private-key: ${{ secrets.OOI_PULL_REQUEST_APP }}
-
-  request-reviewers:
-    needs: generate-token
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    outputs:
-      reviewers: ${{ steps.request-reviewers.outputs.reviewers }}
-    steps:
+      - name: Check is show
+        if: ${{ inputs.show}}
+        run: |
+          echo "Show PR. skipping review requests"
       - uses: actions/checkout@v6
+        if: ${{ !inputs.show }}
         with:
           repository: newjersey/innovation-shared-actions
       - name: Request Reviewers
+        if: ${{ !inputs.show }}
         id: request-reviewers
         uses: ./.github/actions/pickaroo
         with:
@@ -70,11 +71,10 @@ jobs:
           number_of_reviewers: ${{ inputs.number_of_reviewers }}
           github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
           slack_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          token: ${{ needs.generate-token.outputs.token }}
+          token: ${{ steps.generate_token.outputs.token }}
 
   post-slack-message:
     needs: [request-reviewers]
-    if: ${{ needs.request-reviewers.outputs.reviewers != '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -83,6 +83,7 @@ jobs:
         with:
           repository: newjersey/innovation-shared-actions
       - name: "Look up Slack user IDs"
+        if: ${{ !inputs.show }}
         id: lookup-slack-users
         uses: ./.github/actions/lookup-slack-users
         with:
@@ -98,21 +99,27 @@ jobs:
         uses: ./.github/actions/slack-message
         with:
           channel_id: ${{ inputs.channel_id }}
-          message: "[ <${{ github.event.pull_request.html_url }}|PR Review> ] ${{ github.event.repository.name }} - #${{ github.event.pull_request.number }} by ${{ steps.lookup-pr-author.outputs.formatted_string }}:\n\n*${{ github.event.pull_request.title }}*"
-          thread_message: "Hey ${{ steps.lookup-slack-users.outputs.formatted_string }} 🫵! Pickaroo here 🦘👋 Please review the above pull request 🙏🕵️"
+          message: "[ <${{ github.event.pull_request.html_url }}|PR ${{ inputs.show && 'Show' || 'Review' }}> ] ${{ github.event.repository.name }} - #${{ github.event.pull_request.number }} by ${{ steps.lookup-pr-author.outputs.formatted_string }}:\n\n*${{ github.event.pull_request.title }}*"
+          thread_message: ${{ needs.request-reviewers.outputs.reviewers != '' && format('Hey {0} 🫵! Pickaroo here 🦘👋 Please review the above pull request 🙏🕵️', steps.lookup-slack-users.outputs.formatted_string) || '' }}
           token: ${{ secrets.SLACK_OAUTH_TOKEN }}
 
   remove-label:
-    needs: [generate-token, request-reviewers, post-slack-message]
+    needs: [request-reviewers, post-slack-message]
     if: ${{ always() && github.event.action == 'labeled' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
       pull-requests: write
     steps:
+      - name: Generate GitHub App Token
+        id: generate_token
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
+        with:
+          app-id: "2454947"
+          private-key: ${{ secrets.OOI_PULL_REQUEST_APP }}
       - name: Remove triggering label
         run: |
           gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels/${{ github.event.label.name }} \
             -X DELETE
         env:
-          GITHUB_TOKEN: ${{ needs.generate-token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.generate_token.outputs.token }}
