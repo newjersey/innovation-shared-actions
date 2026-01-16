@@ -31,6 +31,10 @@ on:
         required: true
         description: The Slack Channel ID to notify
         type: string
+      show:
+        default: false
+        type: boolean
+        description: If true, only post a Slack message without selecting reviewers
     secrets:
       SLACK_OAUTH_TOKEN:
         required: false
@@ -71,9 +75,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
       - uses: actions/checkout@v6
+        if: ${{ !inputs.show }}
         with:
           repository: newjersey/innovation-shared-actions
       - name: Request Reviewers
+        if: ${{ !inputs.show }}
         id: request-reviewers
         uses: ./.github/actions/pickaroo
         with:
@@ -88,7 +94,6 @@ jobs:
 
   post-slack-message:
     needs: [request-reviewers]
-    if: ${{ needs.request-reviewers.outputs.reviewers != '' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -99,6 +104,7 @@ jobs:
         with:
           repository: newjersey/innovation-shared-actions
       - name: "Look up Slack user IDs"
+        if: ${{ !inputs.show }}
         id: lookup-slack-users
         uses: ./.github/actions/lookup-slack-users
         with:
@@ -115,9 +121,9 @@ jobs:
         uses: ./.github/actions/slack-message
         with:
           channel_id: ${{ inputs.channel_id }}
-          message: "[ <${{ github.event.pull_request.html_url }}|PR Review> ] ${{ github.event.repository.name }} - ${{ github.event.pull_request.number }} by ${{ steps.lookup-pr-author.outputs.formatted_string }}:\n\n*${{ github.event.pull_request.title }}*"
+          message: "[ <${{ github.event.pull_request.html_url }}|PR ${{ inputs.show && 'Show' || 'Review' }}> ] ${{ github.event.repository.name }} - #${{ github.event.pull_request.number }} by ${{ steps.lookup-pr-author.outputs.formatted_string }}:\n\n*${{ github.event.pull_request.title }}*"
           message_ts: ${{ needs.request-reviewers.outputs.message-ts }}
-          thread_message: "Hey ${{ steps.lookup-slack-users.outputs.formatted_string }} 🫵! Pickaroo here 🦘👋 Please review the above pull request 🙏🕵️"
+          thread_message: ${{ needs.request-reviewers.outputs.reviewers != '' && format('Hey {0} 🫵! Pickaroo here 🦘👋 Please review the above pull request 🙏🕵️', steps.lookup-slack-users.outputs.formatted_string) || '' }}
           token: ${{ secrets.SLACK_OAUTH_TOKEN }}
 
   post-pr-comment:
