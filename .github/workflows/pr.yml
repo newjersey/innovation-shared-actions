@@ -9,7 +9,7 @@ on:
 
 jobs:
   request-reviewers:
-    if: ${{ github.event.label.name == 'request-code-review' }}
+    if: ${{ github.event.label.name == 'pr-review' }}
     uses: ./.github/workflows/pickaroo.yml
     secrets: inherit
     permissions:
@@ -20,8 +20,29 @@ jobs:
       exclude_users: "dhcole gamorgana"
       number_of_reviewers: 2
       channel_id: C03C7NHK9B4 # engineering-all
-  test-request-reviewers:
-    if: ${{ github.event.label.name == 'test-request-code-review' }}
+  pr-show:
+    if: ${{ github.event.label.name == 'pr-show' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: "Look up PR author in Slack"
+        id: lookup-pr-author
+        uses: ./.github/actions/lookup-slack-users
+        with:
+          github_usernames: ${{ github.event.pull_request.user.login }}
+          github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
+      - name: Send Slack message
+        uses: ./.github/actions/slack-message
+        with:
+          channel_id: C03C7NHK9B4 # engineering-all
+          message: "[ <${{ github.event.pull_request.html_url }}|PR Show> ] ${{
+            github.event.repository.name }} - #${{ github.event.pull_request.number }} by ${{
+            steps.lookup-pr-author.outputs.formatted_string }}:\n\n*${{
+            github.event.pull_request.title }}*"
+          token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+  test-pickaroo:
+    if: ${{ github.event.label.name == 'test-pickaroo' }}
     uses: ./.github/workflows/pickaroo.yml
     secrets: inherit
     permissions:
