@@ -25,7 +25,9 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      pull-requests: write
     steps:
+      - uses: actions/checkout@v6
       - name: "Look up PR author in Slack"
         id: lookup-pr-author
         uses: ./.github/actions/lookup-slack-users

@@ -48,7 +48,7 @@ jobs:
       message-ts: ${{ steps.check-comment.outputs.message-ts }}
     steps:
       - name: Generate GitHub App Token
-        id: generate_token
+        id: generate-token
         uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
         with:
           app-id: "2454947"
@@ -69,7 +69,7 @@ jobs:
             echo "message-ts=$MESSAGE_TS" >> $GITHUB_OUTPUT
           fi
         env:
-          GITHUB_TOKEN: ${{ steps.generate_token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
       - uses: actions/checkout@v6
         with:
           repository: newjersey/innovation-shared-actions
@@ -84,10 +84,10 @@ jobs:
           number_of_reviewers: ${{ steps.check-comment.outputs.message-ts != '' && inputs.number_of_repicks || inputs.number_of_reviewers }}
           github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
           slack_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          token: ${{ steps.generate_token.outputs.token }}
+          token: ${{ steps.generate-token.outputs.token }}
 
   post-slack-message:
-    needs: request-reviewers
+    needs: [request-reviewers]
     if: ${{ needs.request-reviewers.outputs.reviewers != '' }}
     runs-on: ubuntu-latest
     permissions:
@@ -144,5 +144,26 @@ jobs:
           gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
             -X POST \
             -f body="$COMMENT_BODY"
+        env:
+          GITHUB_TOKEN: ${{ steps.generate_token.outputs.token }}
+
+  remove-label:
+    # only remove a label if one was added
+    if: ${{ always() && github.event.action == 'labeled' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Generate GitHub App Token
+        id: generate_token
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
+        with:
+          app-id: "2454947"
+          private-key: ${{ secrets.OOI_PULL_REQUEST_APP }}
+      - name: Remove triggering label
+        run: |
+          gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels/${{ github.event.label.name }} \
+            -X DELETE
         env:
           GITHUB_TOKEN: ${{ steps.generate_token.outputs.token }}
