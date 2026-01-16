@@ -6,7 +6,10 @@ inputs:
     required: true
   message:
     description: "Main message to send"
-    required: true
+    required: false
+  message_ts:
+    description: "Timestamp of existing message to reply to in thread (if provided, main message will be skipped)"
+    required: false
   thread_message:
     description: "Optional thread reply message"
     required: false
@@ -17,12 +20,25 @@ inputs:
 outputs:
   message_ts:
     description: "Timestamp of the main message"
-    value: ${{ steps.main_message.outputs.ts }}
+    value: ${{ steps.main_message.outputs.ts || inputs.message_ts }}
 
 runs:
   using: "composite"
   steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        if [ -z "${{ inputs.message }}" ] && [ -z "${{ inputs.message_ts }}" ]; then
+          echo "Error: Either 'message' or 'message_ts' must be provided"
+          exit 1
+        fi
+        
+        if [ -n "${{ inputs.message_ts }}" ] && [ -z "${{ inputs.thread_message }}" ]; then
+          echo "Error: When 'message_ts' is provided, 'thread_message' is required"
+          exit 1
+        fi
     - name: Send main message to Slack channel
+      if: ${{ inputs.message_ts == '' && inputs.message != '' }}
       uses: slackapi/slack-github-action@v2
       id: main_message
       with:
@@ -41,5 +57,5 @@ runs:
         token: ${{ inputs.token }}
         payload: |
           channel: "${{ inputs.channel_id }}"
-          thread_ts: "${{ steps.main_message.outputs.ts }}"
+          thread_ts: "${{ inputs.message_ts || steps.main_message.outputs.ts }}"
           text: "${{ inputs.thread_message }}"
