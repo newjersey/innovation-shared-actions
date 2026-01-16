@@ -11,10 +11,13 @@ inputs:
 outputs:
   slack_users:
     description: "JSON array of Slack user IDs that were matched"
-    value: ${{ steps.build-mentions.outputs.slack-users || steps.handle-empty.outputs.slack-users }}
+    value: ${{ steps.build-mentions.outputs.slack-users }}
   github_users:
     description: "JSON array of GitHub usernames that couldn't be matched to Slack users"
-    value: ${{ steps.build-mentions.outputs.github-users || steps.handle-empty.outputs.github-users }}
+    value: ${{ steps.build-mentions.outputs.github-users }}
+  formatted_string:
+    description: "Comma-separated string of formatted mentions (Slack users as <@ID>, unmatched GitHub users as @username)"
+    value: ${{ steps.build-mentions.outputs.formatted-string }}
 
 runs:
   using: "composite"
@@ -23,15 +26,27 @@ runs:
       id: validate
       shell: bash
       run: |
+        echo "slack-users=[]" >> $GITHUB_OUTPUT
+        echo "github-users=[]" >> $GITHUB_OUTPUT
+        echo "formatted-string=" >> $GITHUB_OUTPUT
+
+        if ! echo '${{ inputs.github_slack_mapping }}' | jq empty 2>/dev/null; then
+          echo "Error: github_slack_mapping is not valid JSON"
+          exit 1
+        fi
+
+        if [ "$(echo '${{ inputs.github_slack_mapping }}' | jq -r 'type')" != "object" ]; then
+          echo "Error: github_slack_mapping must be a JSON object"
+          exit 1
+        fi
+
         if [ -z '${{ inputs.github_usernames }}' ]; then
-          echo "has-usernames=false" >> $GITHUB_OUTPUT
-        else
-          echo "has-usernames=true" >> $GITHUB_OUTPUT
+          echo "Error: no github_usernames were provided."
+          exit 1
         fi
 
     - name: Build mentions and find unmatched
       id: build-mentions
-      if: steps.validate.outputs.has-usernames == 'true'
       shell: bash
       run: |
         GITHUB_USERNAMES='${{ inputs.github_usernames }}'
@@ -54,13 +69,11 @@ runs:
           fi
         done
 
+        # Build formatted string with mentions
+        FORMATTED_STRING=$(echo "$SLACK_USERS $GITHUB_USERS" | jq -r -s '
+          (.[0] | map("<@" + . + ">")) + (.[1] | map("@" + .)) | join(", ")
+        ')
+
         echo "slack-users=$(echo "$SLACK_USERS" | jq -c .)" >> $GITHUB_OUTPUT
         echo "github-users=$(echo "$GITHUB_USERS" | jq -c .)" >> $GITHUB_OUTPUT
-
-    - name: Handle empty input
-      id: handle-empty
-      if: steps.validate.outputs.has-usernames == 'false'
-      shell: bash
-      run: |
-        echo "slack-users=[]" >> $GITHUB_OUTPUT
-        echo "github-users=[]" >> $GITHUB_OUTPUT
+        echo "formatted-string=$FORMATTED_STRING" >> $GITHUB_OUTPUT
