@@ -34,12 +34,12 @@ on:
         required: false
 
 jobs:
-  request-reviewers:
+  generate-token:
     runs-on: ubuntu-latest
     permissions:
       contents: read
     outputs:
-      reviewers: ${{ steps.request-reviewers.outputs.reviewers }}
+      token: ${{ steps.generate_token.outputs.token }}
     steps:
       - name: Generate GitHub App Token
         id: generate_token
@@ -47,6 +47,15 @@ jobs:
         with:
           app-id: "2454947"
           private-key: ${{ secrets.OOI_PULL_REQUEST_APP }}
+
+  request-reviewers:
+    needs: generate-token
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      reviewers: ${{ steps.request-reviewers.outputs.reviewers }}
+    steps:
       - uses: actions/checkout@v6
         with:
           repository: newjersey/innovation-shared-actions
@@ -61,10 +70,10 @@ jobs:
           number_of_reviewers: ${{ inputs.number_of_reviewers }}
           github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
           slack_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          token: ${{ steps.generate_token.outputs.token }}
+          token: ${{ needs.generate-token.outputs.token }}
 
   post-slack-message:
-    needs: request-reviewers
+    needs: [request-reviewers]
     if: ${{ needs.request-reviewers.outputs.reviewers != '' }}
     runs-on: ubuntu-latest
     permissions:
@@ -92,3 +101,18 @@ jobs:
           message: "[ <${{ github.event.pull_request.html_url }}|PR Review> ] ${{ github.event.repository.name }} - #${{ github.event.pull_request.number }} by ${{ steps.lookup-pr-author.outputs.formatted_string }}:\n\n*${{ github.event.pull_request.title }}*"
           thread_message: "Hey ${{ steps.lookup-slack-users.outputs.formatted_string }} 🫵! Pickaroo here 🦘👋 Please review the above pull request 🙏🕵️"
           token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+
+  remove-label:
+    needs: [generate-token, request-reviewers, post-slack-message]
+    if: ${{ always() && github.event.action == 'labeled' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Remove triggering label
+        run: |
+          gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/labels/${{ github.event.label.name }} \
+            -X DELETE
+        env:
+          GITHUB_TOKEN: ${{ needs.generate-token.outputs.token }}
