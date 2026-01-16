@@ -9,23 +9,45 @@ on:
 
 jobs:
   request-reviewers:
-    if: ${{ github.event.label.name == 'request-code-review' }}
+    if: ${{ github.event.label.name == 'pr-review' }}
     uses: ./.github/workflows/pickaroo.yml
     secrets: inherit
     permissions:
       contents: read
+      pull-requests: write
     with:
       include_teams: "innovation-engineering"
       exclude_users: "dhcole gamorgana"
       number_of_reviewers: 2
       channel_id: C03C7NHK9B4 # engineering-all
-  test-request-reviewers:
-    if: ${{ github.event.label.name == 'test-request-code-review' }}
+  pr-show:
+    if: ${{ github.event.label.name == 'pr-show' }}
     uses: ./.github/workflows/pickaroo.yml
     secrets: inherit
     permissions:
       contents: read
+      pull-requests: write
+    with:
+      show: true
+      channel_id: C03C7NHK9B4 # engineering-all
+  test-pr-review:
+    if: ${{ github.event.label.name == 'test-pr-review' }}
+    uses: ./.github/workflows/pickaroo.yml
+    secrets: inherit
+    permissions:
+      contents: read
+      pull-requests: write
     with:
       include_teams: "innovation-engineering"
       number_of_reviewers: 1
+      channel_id: C09Q36G9HMX # sandbox
+  test-pr-show:
+    if: ${{ github.event.label.name == 'test-pr-show' }}
+    uses: ./.github/workflows/pickaroo.yml
+    secrets: inherit
+    permissions:
+      contents: read
+      pull-requests: write
+    with:
+      show: true
       channel_id: C09Q36G9HMX # sandbox
