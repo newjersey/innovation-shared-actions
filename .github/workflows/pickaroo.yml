@@ -56,8 +56,13 @@ jobs:
       - name: Check for existing pickaroo comment
         id: check-comment
         run: |
+          # Determines whether we're re-picking reviewers based on the presence of message-ts in a comment
           COMMENT=$(gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
-            --jq '[.[] | select(.user.login == "ooi-pull-request-app[bot]" and (.body | contains("message_ts:")))] | sort_by(.created_at) | last | {id: .id, body: .body} | @json')
+            --jq '
+              [.[] | select(.user.login == "ooi-pull-request-app[bot]" and (.body | contains("message_ts:")))] |
+              sort_by(.created_at) | 
+              last | {id: .id, body: .body} |
+              @json')
 
           if [ -n "$COMMENT" ] && [ "$COMMENT" != "null" ]; then
             MESSAGE_TS=$(echo "$COMMENT" | jq -r '.body' | grep -o 'message_ts: [0-9]\+\.[0-9]\+' | cut -d' ' -f2)
