@@ -18,7 +18,8 @@ jobs:
         uses: ./.github/actions/build-github-slack-user-map
         with:
           token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          slack_field: "Xf0A3AH8QTS6"
+          slack_field: "Xf0A3AH8QTS6" # GitHub Username
+          backup_field: "Xf03K8FB8WDU" # Name Pronunciation
       - name: Generate GitHub App Token
         id: generate_token
         uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
