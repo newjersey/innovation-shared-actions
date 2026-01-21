@@ -44,9 +44,6 @@ on:
 jobs:
   request-reviewers:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
     outputs:
       reviewers: ${{ steps.request-reviewers.outputs.reviewers }}
       message-ts: ${{ steps.check-comment.outputs.message-ts }}
@@ -95,8 +92,6 @@ jobs:
   post-slack-message:
     needs: [request-reviewers]
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
     outputs:
       message-ts: ${{ steps.send-slack-message.outputs.message_ts }}
     steps:
@@ -130,9 +125,6 @@ jobs:
     needs: [request-reviewers, post-slack-message]
     if: ${{ needs.request-reviewers.outputs.message-ts == '' && needs.request-reviewers.result == 'success' && needs.post-slack-message.result == 'success' && needs.request-reviewers.outputs.reviewers != '' }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
     steps:
       - name: Generate GitHub App Token
         id: generate_token
@@ -157,9 +149,6 @@ jobs:
     # only remove a label if one was added
     if: ${{ always() && github.event.action == 'labeled' }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
     steps:
       - name: Generate GitHub App Token
         id: generate_token
