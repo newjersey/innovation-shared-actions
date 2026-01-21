@@ -7,6 +7,9 @@ inputs:
   slack_field:
     description: "The key on the slack profile 'fields' property that would contain a users github handle."
     required: true
+  backup_field:
+    description: "The key on the slack profile 'fields' property to try fuzzy-finding a github handle if the primary field is unavailable."
+    required: false
 
 outputs:
   github_slack_mapping:
@@ -67,6 +70,16 @@ runs:
               -H "Authorization: Bearer ${{ inputs.token }}")
             
             GITHUB_USERNAME=$(echo "$PROFILE_RESPONSE" | jq -r '.profile.fields.${{ inputs.slack_field }}.value // ""')
+            
+            if [ -z "$GITHUB_USERNAME" ] || [ "$GITHUB_USERNAME" = "null" ] || [ "$GITHUB_USERNAME" = "" ]; then
+              if [ -n "${{ inputs.backup_field }}" ]; then
+                BACKUP_VALUE=$(echo "$PROFILE_RESPONSE" | jq -r '.profile.fields.${{ inputs.backup_field }}.value // ""')
+                if [ -n "$BACKUP_VALUE" ] && [ "$BACKUP_VALUE" != "null" ] && [ "$BACKUP_VALUE" != "" ]; then
+                  # match things like 'gh: username' or 'GitHub: User_name1' and trim out the prefix.
+                  GITHUB_USERNAME=$(echo "$BACKUP_VALUE" | grep -oiE '(GH|GitHub):\s*[A-Za-z0-9_-]+' | cut -d':' -f2 | xargs)
+                fi
+              fi
+            fi
             
             if [ -n "$GITHUB_USERNAME" ] && [ "$GITHUB_USERNAME" != "null" ] && [ "$GITHUB_USERNAME" != "" ]; then
               GITHUB_SLACK_MAP=$(echo "$GITHUB_SLACK_MAP" | jq --arg github_user "$GITHUB_USERNAME" --arg slack_id "$user_id" '. + {($github_user): $slack_id}')
