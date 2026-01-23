@@ -118,7 +118,7 @@ jobs:
           channel_id: ${{ inputs.channel_id }}
           message: "[ <${{ github.event.pull_request.html_url }}|PR ${{ inputs.show && 'Show' || 'Review' }}> ] ${{ github.event.repository.name }} - #${{ github.event.pull_request.number }} by ${{ steps.lookup-pr-author.outputs.formatted_string }}:\n\n*${{ github.event.pull_request.title }}*"
           message_ts: ${{ needs.request-reviewers.outputs.message-ts }}
-          thread_message: ${{ needs.request-reviewers.outputs.reviewers != '' && format('Hey {0} 🫵! Pickaroo here 🦘👋 Please review the above pull request 🙏🕵️', steps.lookup-slack-users.outputs.formatted_string) || '' }}
+          thread_message: ${{ needs.request-reviewers.outputs.reviewers != '' && format('Hey {0} 🫵! Please review this pull request 🦘🙏', steps.lookup-slack-users.outputs.formatted_string) || '' }}
           token: ${{ secrets.SLACK_OAUTH_TOKEN }}
 
   post-pr-comment:
