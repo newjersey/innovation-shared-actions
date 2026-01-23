@@ -8,14 +8,24 @@ on:
       - main
 
 jobs:
-  request-reviewers:
+  request-project-reviewers:
     if: ${{ github.event.label.name == 'pr-review' }}
+    uses: ./.github/workflows/pickaroo.yml
+    secrets: inherit
+    with:
+      include_users: "timwright12 jviall aloverso"
+      number_of_reviewers: 1
+      number_of_repicks: 0 # don't repick
+      channel_id: C03C7NHK9B4 # engineering-all
+  request-initiative-reviewers:
+    if: ${{ github.event.label.name == 'pr-review' }}
+    needs: request-project-reviewers # avoid a race between jobs
     uses: ./.github/workflows/pickaroo.yml
     secrets: inherit
     with:
       include_teams: "innovation-engineering"
       exclude_users: "dhcole gamorgana"
-      number_of_reviewers: 2
+      number_of_repicks: 2 # since this isn't the first run, it's a repick
       channel_id: C03C7NHK9B4 # engineering-all
   pr-show:
     if: ${{ github.event.label.name == 'pr-show' }}
