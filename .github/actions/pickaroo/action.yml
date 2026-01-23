@@ -38,6 +38,13 @@ runs:
       id: select-reviewers
       shell: bash
       run: |
+        # Validate number_of_reviewers
+        if [ "${{ inputs.number_of_reviewers }}" -lt 1 ]; then
+          echo "Number of reviewers is less than 1, exiting early"
+          echo "reviewers=" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+
         PR_AUTHOR="${{ github.event.pull_request.user.login }}"
 
         # Get members from all include teams
