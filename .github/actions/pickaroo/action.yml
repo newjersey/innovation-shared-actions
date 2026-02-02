@@ -90,7 +90,7 @@ runs:
         EXISTING_REVIEWERS=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/requested_reviewers --jq '.users | map(.login)')
         echo "existing reviewers $EXISTING_REVIEWERS"
 
-        COLLABORATORS=$(gh api repos/${{ github.repository }}/collaborators --jq 'map(.login)')
+        COLLABORATORS=$(gh api repos/${{ github.repository }}/collaborators --paginate --jq 'map(.login)')
 
         FILTERED_MEMBERS=$(echo $ALL_INCLUDED | jq -r --arg author "$PR_AUTHOR"\
           --argjson exclude "$ALL_EXCLUDED"\
