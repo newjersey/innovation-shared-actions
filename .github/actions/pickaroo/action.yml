@@ -115,6 +115,13 @@ runs:
           --argjson existing "$EXISTING_REVIEWERS"\
           --argjson collaborators "$COLLABORATORS" 'map(select(. != $author and (. as $member | $exclude | index($member) | not) and (. as $member | $existing | index($member) | not) and (. as $member | $collaborators | index($member)))) | unique | .[]')
 
+        # Check if we have any eligible members before Slack filtering
+        if [ -z "$FILTERED_MEMBERS" ]; then
+          echo "ERROR: No eligible reviewers found after filtering by teams, collaborators, and exclude lists"
+          echo "Check your exclude_teams and exclude_users, and ensure that all of your include_users and include_teams are collaborators on your repository."
+          exit 1
+        fi
+
         # Filter out users based on Slack status if mapping is provided
         if [ -n "${{ inputs.github_slack_mapping }}" ] && [ -n "${{ inputs.slack_token }}" ]; then
           echo "Filtering based on Slack status..."
@@ -123,31 +130,34 @@ runs:
           for member in $FILTERED_MEMBERS; do
             SLACK_USER_ID=$(echo '${{ inputs.github_slack_mapping }}' | jq -r --arg github_user "$member" '.[$github_user] // empty')
 
-            if [ -n "$SLACK_USER_ID" ] && [ "$SLACK_USER_ID" != "null" ]; then
-              # Get user's Slack profile
-              echo "Checking Slack status for $member (Slack ID: $SLACK_USER_ID)"
-              PROFILE_RESPONSE=$(curl -s -X GET "https://slack.com/api/users.profile.get?user=$SLACK_USER_ID" \
-                -H "Authorization: Bearer ${{ inputs.slack_token }}")
+            # If no Slack mapping found, include the user and continue
+            if [ -z "$SLACK_USER_ID" ] || [ "$SLACK_USER_ID" == "null" ]; then
+              SLACK_FILTERED_MEMBERS="$SLACK_FILTERED_MEMBERS$member\n"
+              continue
+            fi
 
-              if ! echo "$PROFILE_RESPONSE" | jq -e '.ok' > /dev/null; then
-                SLACK_ERROR=$(echo "$PROFILE_RESPONSE" | jq -r '.error // "unknown error"')
-                echo "ERROR: Slack API call failed for user $member (ID: $SLACK_USER_ID): $SLACK_ERROR"
-                exit 1
-              fi
+            # Get user's Slack profile
+            PROFILE_RESPONSE=$(curl -s -X GET "https://slack.com/api/users.profile.get?user=$SLACK_USER_ID" \
+              -H "Authorization: Bearer ${{ inputs.slack_token }}")
 
-              STATUS_TEXT=$(echo "$PROFILE_RESPONSE" | jq -r '.profile.status_text // ""')
-              STATUS_EMOJI=$(echo "$PROFILE_RESPONSE" | jq -r '.profile.status_emoji // ""')
+            if ! echo "$PROFILE_RESPONSE" | jq -e '.ok' > /dev/null; then
+              SLACK_ERROR=$(echo "$PROFILE_RESPONSE" | jq -r '.error // "unknown error"')
+              echo "WARNING: Slack API call failed for user $member (ID: $SLACK_USER_ID): $SLACK_ERROR - including user anyway"
+              SLACK_FILTERED_MEMBERS="$SLACK_FILTERED_MEMBERS$member\n"
+              continue
+            fi
 
-              # Check if status indicates unavailability (case insensitive)
-              STATUS_LOWER=$(echo "$STATUS_TEXT $STATUS_EMOJI" | tr '[:upper:]' '[:lower:]')
+            STATUS_TEXT=$(echo "$PROFILE_RESPONSE" | jq -r '.profile.status_text // ""')
+            STATUS_EMOJI=$(echo "$PROFILE_RESPONSE" | jq -r '.profile.status_emoji // ""')
 
-              if echo "$STATUS_LOWER" | grep -qE "(out of office|ooo|sick|flu|vacation|unavailable|leave|travel|thermometer|mask|vomiting|palm_tree)"; then
-                echo "Filtering out $member due to Slack status: $STATUS_TEXT $STATUS_EMOJI"
-              else
-                SLACK_FILTERED_MEMBERS="$SLACK_FILTERED_MEMBERS$member\n"
-              fi
+            echo "Slack status for $member ($SLACK_USER_ID) is '$STATUS_EMOJI $STATUS_TEXT'"
+            # include statuses that appear to be for future OOO
+            if echo "$STATUS_TEXT $STATUS_EMOJI" | tr '[:upper:]' '[:lower:]' | grep -qE "(crystal_ball|upcoming|future|planned)"; then
+              SLACK_FILTERED_MEMBERS="$SLACK_FILTERED_MEMBERS$member\n"
+            # Check if status indicates current unavailability
+            elif echo "$STATUS_TEXT $STATUS_EMOJI" | tr '[:upper:]' '[:lower:]' | grep -qE "(out of office|ooo|sick|flu|vacation|unavailable|leave|travel|thermometer|mask|vomiting|palm_tree)"; then
+              echo "  ==> Excluding $member due to Slack status."
             else
-              # If no Slack mapping found, include the user
               SLACK_FILTERED_MEMBERS="$SLACK_FILTERED_MEMBERS$member\n"
             fi
           done
@@ -155,7 +165,7 @@ runs:
           FILTERED_MEMBERS=$(echo -e "$SLACK_FILTERED_MEMBERS" | grep -v '^$' || true)
 
           if [ -z "$FILTERED_MEMBERS" ]; then
-            echo "WARNING: All members were filtered out by Slack status check"
+            echo "WARNING: All potential reviewers were filtered out by Slack status check"
           fi
         fi
 
