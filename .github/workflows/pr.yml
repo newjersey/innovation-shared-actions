@@ -25,7 +25,7 @@ jobs:
     with:
       include_teams: "innovation-engineering"
       exclude_users: "dhcole gamorgana"
-      number_of_repicks: 2 # since this isn't the first run, it's a repick
+      number_of_repicks: 1 # since this isn't the first run, it's a repick
       channel_id: C03C7NHK9B4 # engineering-all
   pr-show:
     if: ${{ github.event.label.name == 'pr-show' }}
