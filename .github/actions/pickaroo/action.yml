@@ -38,6 +38,8 @@ runs:
       id: select-reviewers
       shell: bash
       run: |
+        set -euo pipefail  # Exit on error, undefined variables, and pipe failures
+
         # Validate number_of_reviewers
         if [ "${{ inputs.number_of_reviewers }}" -lt 1 ]; then
           echo "Number of reviewers is less than 1, exiting early"
@@ -51,7 +53,11 @@ runs:
         TEAM_MEMBERS="[]"
         if [ -n "${{ inputs.include_teams }}" ]; then
           for team in ${{ inputs.include_teams }}; do
-            MEMBERS=$(gh api orgs/newjersey/teams/$team/members --jq 'map(.login)')
+            echo "Fetching members for include team: $team"
+            if ! MEMBERS=$(gh api orgs/newjersey/teams/$team/members --jq 'map(.login)' 2>&1); then
+              echo "ERROR: Failed to fetch members for team '$team': $MEMBERS"
+              exit 1
+            fi
             TEAM_MEMBERS=$(echo "$TEAM_MEMBERS $MEMBERS" | jq -s 'add | unique')
           done
         fi
@@ -72,7 +78,11 @@ runs:
         EXCLUDE_MEMBERS="[]"
         if [ -n "${{ inputs.exclude_teams }}" ]; then
           for team in ${{ inputs.exclude_teams }}; do
-            MEMBERS=$(gh api orgs/newjersey/teams/$team/members --jq 'map(.login)')
+            echo "Fetching members for exclude team: $team"
+            if ! MEMBERS=$(gh api orgs/newjersey/teams/$team/members --jq 'map(.login)' 2>&1); then
+              echo "ERROR: Failed to fetch members for team '$team': $MEMBERS"
+              exit 1
+            fi
             EXCLUDE_MEMBERS=$(echo "$EXCLUDE_MEMBERS $MEMBERS" | jq -s 'add | unique')
           done
         fi
@@ -87,10 +97,18 @@ runs:
         ALL_EXCLUDED=$(echo "$EXCLUDE_MEMBERS $EXCLUDE_USERS" | jq -s 'add | unique')
         echo "all excluded $ALL_EXCLUDED"
 
-        EXISTING_REVIEWERS=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/requested_reviewers --jq '.users | map(.login)')
+        echo "Fetching existing reviewers for PR #${{ github.event.pull_request.number }}"
+        if ! EXISTING_REVIEWERS=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/requested_reviewers --jq '.users | map(.login)' 2>&1); then
+          echo "ERROR: Failed to fetch existing reviewers: $EXISTING_REVIEWERS"
+          exit 1
+        fi
         echo "existing reviewers $EXISTING_REVIEWERS"
 
-        COLLABORATORS=$(gh api repos/${{ github.repository }}/collaborators --paginate --jq 'map(.login)')
+        echo "Fetching repository collaborators"
+        if ! COLLABORATORS=$(gh api repos/${{ github.repository }}/collaborators --paginate --jq 'map(.login)' 2>&1); then
+          echo "ERROR: Failed to fetch collaborators: $COLLABORATORS"
+          exit 1
+        fi
 
         FILTERED_MEMBERS=$(echo $ALL_INCLUDED | jq -r --arg author "$PR_AUTHOR"\
           --argjson exclude "$ALL_EXCLUDED"\
@@ -101,21 +119,28 @@ runs:
         if [ -n "${{ inputs.github_slack_mapping }}" ] && [ -n "${{ inputs.slack_token }}" ]; then
           echo "Filtering based on Slack status..."
           SLACK_FILTERED_MEMBERS=""
-          
+
           for member in $FILTERED_MEMBERS; do
             SLACK_USER_ID=$(echo '${{ inputs.github_slack_mapping }}' | jq -r --arg github_user "$member" '.[$github_user] // empty')
-            
+
             if [ -n "$SLACK_USER_ID" ] && [ "$SLACK_USER_ID" != "null" ]; then
               # Get user's Slack profile
+              echo "Checking Slack status for $member (Slack ID: $SLACK_USER_ID)"
               PROFILE_RESPONSE=$(curl -s -X GET "https://slack.com/api/users.profile.get?user=$SLACK_USER_ID" \
                 -H "Authorization: Bearer ${{ inputs.slack_token }}")
-              
+
+              if ! echo "$PROFILE_RESPONSE" | jq -e '.ok' > /dev/null; then
+                SLACK_ERROR=$(echo "$PROFILE_RESPONSE" | jq -r '.error // "unknown error"')
+                echo "ERROR: Slack API call failed for user $member (ID: $SLACK_USER_ID): $SLACK_ERROR"
+                exit 1
+              fi
+
               STATUS_TEXT=$(echo "$PROFILE_RESPONSE" | jq -r '.profile.status_text // ""')
               STATUS_EMOJI=$(echo "$PROFILE_RESPONSE" | jq -r '.profile.status_emoji // ""')
-              
+
               # Check if status indicates unavailability (case insensitive)
               STATUS_LOWER=$(echo "$STATUS_TEXT $STATUS_EMOJI" | tr '[:upper:]' '[:lower:]')
-              
+
               if echo "$STATUS_LOWER" | grep -qE "(out of office|ooo|sick|flu|vacation|unavailable|leave|travel|thermometer|mask|vomiting|palm_tree)"; then
                 echo "Filtering out $member due to Slack status: $STATUS_TEXT $STATUS_EMOJI"
               else
@@ -126,8 +151,12 @@ runs:
               SLACK_FILTERED_MEMBERS="$SLACK_FILTERED_MEMBERS$member\n"
             fi
           done
-          
-          FILTERED_MEMBERS=$(echo -e "$SLACK_FILTERED_MEMBERS" | grep -v '^$')
+
+          FILTERED_MEMBERS=$(echo -e "$SLACK_FILTERED_MEMBERS" | grep -v '^$' || true)
+
+          if [ -z "$FILTERED_MEMBERS" ]; then
+            echo "WARNING: All members were filtered out by Slack status check"
+          fi
         fi
 
         RANDOM_ASSIGNEES=$(echo "$FILTERED_MEMBERS" | shuf -n ${{ inputs.number_of_reviewers }} )
@@ -135,17 +164,26 @@ runs:
 
         if [ -n "$RANDOM_ASSIGNEES" ]; then
           REVIEWERS_JSON=$(echo "$RANDOM_ASSIGNEES" | jq -R -s 'split("\n") | map(select(length > 0))')
-          
+
           # Set output as space-delimited string
           REVIEWERS_STRING=$(echo "$RANDOM_ASSIGNEES" | tr '\n' ' ' | sed 's/[[:space:]]*$//')
           echo "reviewers=$REVIEWERS_STRING" >> $GITHUB_OUTPUT
-          
-          curl -L -s \
+
+          echo "Requesting reviewers: $REVIEWERS_STRING"
+          REVIEW_RESPONSE=$(curl -L -s \
             -X POST \
             -H "Accept: application/vnd.github+json" \
             -H "Authorization: Bearer ${{ inputs.token }}" \
             https://api.github.com/repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/requested_reviewers \
-            -d "{\"reviewers\":$REVIEWERS_JSON}"
+            -d "{\"reviewers\":$REVIEWERS_JSON}")
+
+          if echo "$REVIEW_RESPONSE" | jq -e '.message' > /dev/null 2>&1; then
+            ERROR_MSG=$(echo "$REVIEW_RESPONSE" | jq -r '.message')
+            echo "ERROR: Failed to request reviewers: $ERROR_MSG"
+            exit 1
+          fi
+
+          echo "Successfully requested reviewers"
         else
           echo "reviewers=" >> $GITHUB_OUTPUT
           echo "No available members to request review from based on filters"
