@@ -28,14 +28,48 @@ runs:
     - name: Validate inputs
       shell: bash
       run: |
+        set -euo pipefail
+
         if [ -z "${{ inputs.message }}" ] && [ -z "${{ inputs.message_ts }}" ]; then
-          echo "Error: Either 'message' or 'message_ts' must be provided"
+          echo "ERROR: Either 'message' or 'message_ts' must be provided"
           exit 1
         fi
-        
+
         if [ -n "${{ inputs.message_ts }}" ] && [ -z "${{ inputs.thread_message }}" ]; then
-          echo "Error: When 'message_ts' is provided, 'thread_message' is required"
+          echo "ERROR: When 'message_ts' is provided, 'thread_message' is required"
           exit 1
+        fi
+
+        # If message_ts is provided, verify the parent message exists in Slack
+        if [ -n "${{ inputs.message_ts }}" ] && [ -z "${{ inputs.message }}" ]; then
+          echo "Verifying message with timestamp ${{ inputs.message_ts }} exists in Slack"
+
+          RESPONSE=$(curl -s -X GET "https://slack.com/api/conversations.history" \
+            -H "Authorization: Bearer ${{ inputs.token }}" \
+            -d "channel=${{ inputs.channel_id }}" \
+            -d "latest=${{ inputs.message_ts }}" \
+            -d "limit=1" \
+            -d "inclusive=true")
+
+          if ! echo "$RESPONSE" | jq -e '.ok' > /dev/null; then
+            SLACK_ERROR=$(echo "$RESPONSE" | jq -r '.error // "unknown error"')
+            echo "ERROR: Failed to verify message existence: $SLACK_ERROR. Is your channel_id correct?"
+            exit 1
+          fi
+
+          MESSAGE_COUNT=$(echo "$RESPONSE" | jq '.messages | length')
+          if [ "$MESSAGE_COUNT" -eq 0 ]; then
+            echo "ERROR: No messages found since timestamp ${{ inputs.message_ts }} in channel ${{ inputs.channel_id }}.  Is your channel_id correct?"
+            exit 1
+          fi
+
+          MESSAGE_TS=$(echo "$RESPONSE" | jq -r '.messages[0].ts')
+          if [ "$MESSAGE_TS" != "${{ inputs.message_ts }}" ]; then
+            echo "ERROR: Message timestamp mismatch. Expected ${{ inputs.message_ts }}, got $MESSAGE_TS.  Is your channel_id correct?"
+            exit 1
+          fi
+
+          echo "Found parent message."
         fi
     - name: Send main message to Slack channel
       if: ${{ inputs.message_ts == '' && inputs.message != '' }}
