@@ -1,0 +1,57 @@
+name: npm audit
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: "Node version to use (e.g., '20') or a file path (e.g., '.nvmrc')"
+        required: false
+        default: ".nvmrc"
+        type: string
+      audit-level:
+        description: "npm audit severity threshold"
+        required: false
+        default: "critical"
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  npm-audit:
+    name: Critical vulnerabilities
+    runs-on: ubuntu-latest
+    outputs:
+      audit_failed: ${{ steps.audit.outcome }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Determine Node version
+        id: node-version
+        run: |
+          if [ -f "${{ inputs.node-version }}" ]; then
+            # It's a file, read version from file
+            NODE_VERSION=$(cat "${{ inputs.node-version }}" | tr -d '[:space:]')
+            echo "Node version read from file: $NODE_VERSION"
+          else
+            # Treat as literal version
+            NODE_VERSION="${{ inputs.node-version }}"
+            echo "Node version provided directly: $NODE_VERSION"
+          fi
+          echo "NODE_VERSION=$NODE_VERSION" >> $GITHUB_ENV
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run npm audit (fail on critical)
+        id: audit
+        run: |
+          npm audit --audit-level=${{ inputs.audit-level }} || exit 1
