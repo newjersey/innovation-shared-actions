@@ -22,7 +22,7 @@ jobs:
     name: Critical vulnerabilities
     runs-on: ubuntu-latest
     outputs:
-      audit_failed: ${{ steps.audit.outcome }}
+      audit_status: ${{ steps.audit-status.outputs.status }}
 
     steps:
       - name: Checkout repository
@@ -49,9 +49,32 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            echo "No package-lock.json found. Skipping dependency installation."
+          fi
 
       - name: Run npm audit (fail on critical)
         id: audit
         run: |
-          npm audit --audit-level=${{ inputs.audit-level }} || exit 1
+          if [ -f package-lock.json ]; then
+            npm audit --audit-level=${{ inputs.audit-level }}
+          else
+            echo "No package-lock.json found. Skipping npm audit."
+          fi
+      
+      - name: Set audit status output
+        id: audit-status
+        if: always()
+        run: |
+          if [ ! -f package-lock.json ]; then
+            STATUS="skipped"
+          elif [ "${{ steps.audit.outcome }}" = "failure" ]; then
+            STATUS="failure"
+          else
+            STATUS="success"
+          fi
+
+          echo "status=$STATUS" >> "$GITHUB_OUTPUT"
