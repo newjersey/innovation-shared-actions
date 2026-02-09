@@ -43,7 +43,7 @@ jobs:
           echo "NODE_VERSION=$NODE_VERSION" >> $GITHUB_ENV
 
       - name: Set up Node.js
-        uses: actions/setup-node@v5
+        uses: actions/setup-node@v6
         with:
           node-version: ${{ env.NODE_VERSION }}
 
