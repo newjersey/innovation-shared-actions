@@ -121,29 +121,41 @@ jobs:
         with:
           github_usernames: ${{ github.event.pull_request.user.login }}
           github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
-      - name: Determine thread message
-        id: thread-message
+      - name: Build message strings
+        id: build-message
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_TYPE: PR ${{ inputs.show && 'Show' || 'Review' }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ steps.lookup-pr-author.outputs.formatted_string }}
+          PR_REVIEWERS: ${{ steps.lookup-slack-users.outputs.formatted_string }}
         run: |
-          set -euo pipefail
+          set -eo pipefail
+          # Main Message
+          MESSAGE="[ <$PR_URL|$PR_TYPE> ] ${{ github.event.repository.name }} - #$PR_NUMBER by $PR_AUTHOR:\n\n*$PR_TITLE*"
 
+          # Threaded Message
           if [ -n "${{ needs.request-reviewers.outputs.reviewers }}" ]; then
             # Reviewers were found - tag them
-            echo "message=Hey ${{ steps.lookup-slack-users.outputs.formatted_string }} 🫵! Please review this pull request 🦘🙏" >> $GITHUB_OUTPUT
+            THREAD_MESSAGE="Hey $PR_REVIEWERS 🫵! Please review this pull request 🦘🙏"
           elif [ "${{ inputs.show }}" == "false" ]; then
             # No reviewers found and this is a review request (not a show)
-            echo "message=Sorry ${{ steps.lookup-pr-author.outputs.formatted_string }}, likely due their Slack status no potential reviewers are available. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|Check workflow run> for details. Ask Eeny for help and/or manually assign some reviewers." >> $GITHUB_OUTPUT
+            THREAD_MESSAGE="Sorry $PR_AUTHOR, likely due their Slack status no potential reviewers are available. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|Check workflow run> for details. Ask Eeny for help and/or manually assign some reviewers."
           else
-            # No message needed (show mode with no reviewers)
-            echo "message=" >> $GITHUB_OUTPUT
+            THREAD_MESSAGE=""
           fi
+
+          echo "message=$MESSAGE" >> $GITHUB_OUTPUT
+          echo "thread-message=$THREAD_MESSAGE" >> $GITHUB_OUTPUT
       - name: Send Slack message
         id: send-slack-message
         uses: ./.github/actions/slack-message
         with:
           channel_id: ${{ inputs.channel_id }}
-          message: "[ <${{ github.event.pull_request.html_url }}|PR ${{ inputs.show && 'Show' || 'Review' }}> ] ${{ github.event.repository.name }} - #${{ github.event.pull_request.number }} by ${{ steps.lookup-pr-author.outputs.formatted_string }}:\n\n*${{ github.event.pull_request.title }}*"
+          message: ${{ steps.build-message.outputs.message}}
           message_ts: ${{ needs.request-reviewers.outputs.message-ts }}
-          thread_message: ${{ steps.thread-message.outputs.message }}
+          thread_message: ${{ steps.build-message.outputs.thread-message }}
           token: ${{ secrets.SLACK_OAUTH_TOKEN }}
 
   post-pr-comment:
