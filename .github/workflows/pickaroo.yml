@@ -121,47 +121,72 @@ jobs:
         with:
           github_usernames: ${{ github.event.pull_request.user.login }}
           github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
-      - name: Build message strings
-        id: build-message
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          PR_TYPE: PR ${{ inputs.show && 'Show' || 'Review' }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_AUTHOR: ${{ steps.lookup-pr-author.outputs.formatted_string }}
-          PR_REVIEWERS: ${{ steps.lookup-slack-users.outputs.formatted_string }}
+      - name: Build main message payload
+        if: ${{ needs.request-reviewers.outputs.message-ts == '' }}
         run: |
           set -eo pipefail
-          # Main Message
-          MESSAGE="[ <$PR_URL|$PR_TYPE> ] ${{ github.event.repository.name }} - #$PR_NUMBER by $PR_AUTHOR:\n\n*$PR_TITLE*"
 
-          # Threaded Message
+          # Create main message payload
+          cat > /tmp/main_payload.json << 'EOF'
+          {
+            "channel": "${{ inputs.channel_id }}",
+            "text": "[ <${{ github.event.pull_request.html_url }}|PR ${{ inputs.show && 'Show' || 'Review' }}> ] ${{ github.event.repository.name }} - #${{ github.event.pull_request.number }} by ${{ steps.lookup-pr-author.outputs.formatted_string }}:\n\n*${{ github.event.pull_request.title }}*"
+          }
+          EOF
+      - name: Send main message to Slack
+        id: main-message
+        if: ${{ needs.request-reviewers.outputs.message-ts == '' }}
+        uses: slackapi/slack-github-action@v2
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          payload-file-path: /tmp/main_payload.json
+          payload-templated: true
+      - name: Build thread message payload
+        if: ${{ needs.request-reviewers.outputs.reviewers != '' || inputs.show == false }}
+        run: |
+          set -eo pipefail
+
+          # Build thread message based on whether reviewers were found
           if [ -n "${{ needs.request-reviewers.outputs.reviewers }}" ]; then
             # Reviewers were found - tag them
-            THREAD_MESSAGE="Hey $PR_REVIEWERS 🫵! Please review this pull request 🦘🙏"
-          elif [ "${{ inputs.show }}" == "false" ]; then
-            # No reviewers found and this is a review request (not a show)
-            THREAD_MESSAGE="Sorry $PR_AUTHOR, likely due their Slack status no potential reviewers are available. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|Check workflow run> for details. Ask Eeny for help and/or manually assign some reviewers."
+            cat > /tmp/thread_payload.json << 'EOF'
+            {
+              "channel": "${{ inputs.channel_id }}",
+              "thread_ts": "${{ needs.request-reviewers.outputs.message-ts || steps.main-message.outputs.ts }}",
+              "text": "Hey ${{ steps.lookup-slack-users.outputs.formatted_string }} 🫵! Please review this pull request 🦘🙏"
+            }
+            EOF
           else
-            THREAD_MESSAGE=""
+            # No reviewers found - error message
+            cat > /tmp/thread_payload.json << 'EOF'
+            {
+              "channel": "${{ inputs.channel_id }}",
+              "thread_ts": "${{ needs.request-reviewers.outputs.message-ts || steps.main-message.outputs.ts }}",
+              "text": "Sorry ${{ steps.lookup-pr-author.outputs.formatted_string }}, likely due their Slack status no potential reviewers are available. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|Check workflow run> for details. Ask Eeny for help and/or manually assign some reviewers."
+            }
+            EOF
           fi
-
-          echo "message=$MESSAGE" >> $GITHUB_OUTPUT
-          echo "thread-message=$THREAD_MESSAGE" >> $GITHUB_OUTPUT
-      - name: Send Slack message
-        id: send-slack-message
-        uses: ./.github/actions/slack-message
+      - name: Send thread reply to Slack
+        id: thread-reply
+        if: ${{ needs.request-reviewers.outputs.reviewers != '' || inputs.show == false }}
+        uses: slackapi/slack-github-action@v2
         with:
-          channel_id: ${{ inputs.channel_id }}
-          message: ${{ steps.build-message.outputs.message}}
-          message_ts: ${{ needs.request-reviewers.outputs.message-ts }}
-          thread_message: ${{ steps.build-message.outputs.thread-message }}
+          method: chat.postMessage
           token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          payload-file-path: /tmp/thread_payload.json
+          payload-templated: true
+      - name: Set message timestamp output
+        id: send-slack-message
+        run: |
+          # Use existing message_ts if we're replying to thread, otherwise use the new main message ts
+          MESSAGE_TS="${{ needs.request-reviewers.outputs.message-ts || steps.main-message.outputs.ts }}"
+          echo "message_ts=$MESSAGE_TS" >> $GITHUB_OUTPUT
 
   post-pr-comment:
     needs: [request-reviewers, post-slack-message]
     if: ${{ needs.request-reviewers.outputs.message-ts == '' && needs.request-reviewers.result == 'success' && needs.post-slack-message.result == 'success' && needs.request-reviewers.outputs.reviewers != '' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     steps:
       - name: Generate GitHub App Token
         id: generate_token
@@ -193,7 +218,7 @@ jobs:
   remove-label:
     # only remove a label if one was added
     if: ${{ always() && github.event.action == 'labeled' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-slim
     steps:
       - name: Generate GitHub App Token
         id: generate_token
