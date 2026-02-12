@@ -39,7 +39,7 @@ jobs:
     uses: ./.github/workflows/pickaroo.yml
     secrets: inherit
     with:
-      include_teams: "innovation-engineering"
+      include_users: "jviall timwright12 aloverso"
       number_of_reviewers: 1
       channel_id: C09Q36G9HMX # sandbox
   test-pr-show:
