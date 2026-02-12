@@ -127,7 +127,7 @@ jobs:
           set -eo pipefail
 
           # Create main message payload
-          cat > /tmp/main_payload.json << 'EOF'
+          cat > /tmp/main_payload.json <<'EOF'
           {
             "channel": "${{ inputs.channel_id }}",
             "text": "[ <${{ github.event.pull_request.html_url }}|PR ${{ inputs.show && 'Show' || 'Review' }}> ] ${{ github.event.repository.name }} - #${{ github.event.pull_request.number }} by ${{ steps.lookup-pr-author.outputs.formatted_string }}:\n\n*${{ github.event.pull_request.title }}*"
@@ -150,7 +150,7 @@ jobs:
           # Build thread message based on whether reviewers were found
           if [ -n "${{ needs.request-reviewers.outputs.reviewers }}" ]; then
             # Reviewers were found - tag them
-            cat > /tmp/thread_payload.json << 'EOF'
+            cat > /tmp/thread_payload.json <<'EOF'
             {
               "channel": "${{ inputs.channel_id }}",
               "thread_ts": "${{ needs.request-reviewers.outputs.message-ts || steps.main-message.outputs.ts }}",
@@ -159,7 +159,7 @@ jobs:
             EOF
           else
             # No reviewers found - error message
-            cat > /tmp/thread_payload.json << 'EOF'
+            cat > /tmp/thread_payload.json <<'EOF'
             {
               "channel": "${{ inputs.channel_id }}",
               "thread_ts": "${{ needs.request-reviewers.outputs.message-ts || steps.main-message.outputs.ts }}",
