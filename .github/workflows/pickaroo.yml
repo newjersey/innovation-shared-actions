@@ -132,7 +132,7 @@ jobs:
             "channel": "${{ inputs.channel_id }}",
             "text": "[ <${{ github.event.pull_request.html_url }}|PR ${{ inputs.show && 'Show' || 'Review' }}> ] ${{ github.event.repository.name }} - #${{ github.event.pull_request.number }} by ${{ steps.lookup-pr-author.outputs.formatted_string }}:\n\n*${{ github.event.pull_request.title }}*"
           }
-EOF
+          EOF
       - name: Send main message to Slack
         id: main-message
         if: ${{ needs.request-reviewers.outputs.message-ts == '' }}
@@ -156,7 +156,7 @@ EOF
               "thread_ts": "${{ needs.request-reviewers.outputs.message-ts || steps.main-message.outputs.ts }}",
               "text": "Hey ${{ steps.lookup-slack-users.outputs.formatted_string }} 🫵! Please review this pull request 🦘🙏"
             }
-EOF
+          EOF
           else
             # No reviewers found - error message
             cat > /tmp/thread_payload.json <<'EOF'
@@ -165,7 +165,7 @@ EOF
               "thread_ts": "${{ needs.request-reviewers.outputs.message-ts || steps.main-message.outputs.ts }}",
               "text": "Sorry ${{ steps.lookup-pr-author.outputs.formatted_string }}, likely due their Slack status no potential reviewers are available. <https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|Check workflow run> for details. Ask Eeny for help and/or manually assign some reviewers."
             }
-EOF
+          EOF
           fi
       - name: Send thread reply to Slack
         id: thread-reply
