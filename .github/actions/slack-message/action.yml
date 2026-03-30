@@ -40,6 +40,14 @@ runs:
           exit 1
         fi
 
+        echo "Validating Slack Token..."
+        AUTH_RESPONSE=$(curl -s -X GET "https://slack.com/api/auth.test" -H "Authorization: Bearer ${{ inputs.slack_token }}")
+
+        if ! echo "$AUTH_RESPONSE" | jq -e '.ok' > /dev/null; then
+          echo "ERROR: Slack Auth failed with the given auth token."
+          exit 1
+        fi
+
         # If message_ts is provided, verify the parent message exists in Slack
         if [ -n "${{ inputs.message_ts }}" ] && [ -z "${{ inputs.message }}" ]; then
           echo "Verifying message with timestamp ${{ inputs.message_ts }} exists in Slack"
