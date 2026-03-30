@@ -105,10 +105,11 @@ runs:
         echo "existing reviewers $EXISTING_REVIEWERS"
 
         echo "Fetching repository collaborators"
-        if ! COLLABORATORS=$(gh api repos/${{ github.repository }}/collaborators --paginate --jq 'map(.login)' 2>&1); then
+        if ! COLLABORATORS=$(gh api repos/${{ github.repository }}/collaborators --paginate --jq 'map(.login)' 2>&1 | jq -sc 'add'); then
           echo "ERROR: Failed to fetch collaborators: $COLLABORATORS"
           exit 1
         fi
+        echo "collaborators $COLLABORATORS"
 
         FILTERED_MEMBERS=$(echo $ALL_INCLUDED | jq -r --arg author "$PR_AUTHOR"\
           --argjson exclude "$ALL_EXCLUDED"\
