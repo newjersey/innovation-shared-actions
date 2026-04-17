@@ -3,7 +3,7 @@ description: "Send a message to Slack with optional thread reply"
 inputs:
   channel_id:
     description: "Slack channel ID"
-    required: true
+    required: false
   message:
     description: "Main message to send"
     required: false
@@ -15,34 +15,56 @@ inputs:
     required: false
   token:
     description: "Slack OAuth token"
-    required: true
+    required: false
 
 outputs:
   message_ts:
     description: "Timestamp of the main message"
-    value: ${{ steps.main_message.outputs.ts || inputs.message_ts }}
+    value: ${{ steps.main-message.outputs.ts || env.MESSAGE_TS }}
 
 runs:
   using: "composite"
   steps:
+    - name: Resolve inputs
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        # For each value, prefer the env var (set by caller via $GITHUB_ENV),
+        # fall back to the action input (for backward compatibility with other callers)
+        echo "CHANNEL_ID=${CHANNEL_ID:-$INPUT_CHANNEL_ID}" >> "$GITHUB_ENV"
+        echo "MESSAGE=${MESSAGE:-$INPUT_MESSAGE}" >> "$GITHUB_ENV"
+        echo "MESSAGE_TS=${MESSAGE_TS:-$INPUT_MESSAGE_TS}" >> "$GITHUB_ENV"
+        echo "THREAD_MESSAGE=${THREAD_MESSAGE:-$INPUT_THREAD_MESSAGE}" >> "$GITHUB_ENV"
+        echo "TOKEN=${TOKEN:-$INPUT_TOKEN}" >> "$GITHUB_ENV"
+      env:
+        INPUT_CHANNEL_ID: ${{ inputs.channel_id }}
+        INPUT_MESSAGE: ${{ inputs.message }}
+        INPUT_MESSAGE_TS: ${{ inputs.message_ts }}
+        INPUT_THREAD_MESSAGE: ${{ inputs.thread_message }}
+        INPUT_TOKEN: ${{ inputs.token }}
     - name: Validate inputs
       shell: bash
       run: |
         set -euo pipefail
 
-        if [ -z "${{ inputs.message }}" ] && [ -z "${{ inputs.message_ts }}" ]; then
+        if [ -z "$CHANNEL_ID" ]; then
+          echo "ERROR: 'channel_id' is required"
+          exit 1
+        fi
+
+        if [ -z "$MESSAGE" ] && [ -z "$MESSAGE_TS" ]; then
           echo "ERROR: Either 'message' or 'message_ts' must be provided"
           exit 1
         fi
 
-        if [ -n "${{ inputs.message_ts }}" ] && [ -z "${{ inputs.thread_message }}" ]; then
+        if [ -n "$MESSAGE_TS" ] && [ -z "$THREAD_MESSAGE" ]; then
           echo "ERROR: When 'message_ts' is provided, 'thread_message' is required"
           exit 1
         fi
 
         echo "Validating Slack Token..."
-        AUTH_RESPONSE=$(curl -s -X POST "https://slack.com/api/auth.test" -H "Authorization: Bearer ${{ inputs.token }}")
-        
+        AUTH_RESPONSE=$(curl -s -X POST "https://slack.com/api/auth.test" -H "Authorization: Bearer $TOKEN")
 
         if ! echo "$AUTH_RESPONSE" | jq -e '.ok' > /dev/null; then
           SLACK_ERROR=$(echo "$AUTH_RESPONSE" | jq -r '.error // "unknown_error"')
@@ -51,13 +73,13 @@ runs:
         fi
 
         # If message_ts is provided, verify the parent message exists in Slack
-        if [ -n "${{ inputs.message_ts }}" ] && [ -z "${{ inputs.message }}" ]; then
-          echo "Verifying message with timestamp ${{ inputs.message_ts }} exists in Slack"
+        if [ -n "$MESSAGE_TS" ] && [ -z "$MESSAGE" ]; then
+          echo "Verifying message with timestamp $MESSAGE_TS exists in Slack"
 
           RESPONSE=$(curl -s -X GET "https://slack.com/api/conversations.history" \
-            -H "Authorization: Bearer ${{ inputs.token }}" \
-            -d "channel=${{ inputs.channel_id }}" \
-            -d "latest=${{ inputs.message_ts }}" \
+            -H "Authorization: Bearer $TOKEN" \
+            -d "channel=$CHANNEL_ID" \
+            -d "latest=$MESSAGE_TS" \
             -d "limit=1" \
             -d "inclusive=true")
 
@@ -69,37 +91,67 @@ runs:
 
           MESSAGE_COUNT=$(echo "$RESPONSE" | jq '.messages | length')
           if [ "$MESSAGE_COUNT" -eq 0 ]; then
-            echo "ERROR: No messages found since timestamp ${{ inputs.message_ts }} in channel ${{ inputs.channel_id }}.  Is your channel_id correct?"
+            echo "ERROR: No messages found since timestamp $MESSAGE_TS in channel $CHANNEL_ID. Is your channel_id correct?"
             exit 1
           fi
 
-          MESSAGE_TS=$(echo "$RESPONSE" | jq -r '.messages[0].ts')
-          if [ "$MESSAGE_TS" != "${{ inputs.message_ts }}" ]; then
-            echo "ERROR: Message timestamp mismatch. Expected ${{ inputs.message_ts }}, got $MESSAGE_TS.  Is your channel_id correct?"
+          FOUND_TS=$(echo "$RESPONSE" | jq -r '.messages[0].ts')
+          if [ "$FOUND_TS" != "$MESSAGE_TS" ]; then
+            echo "ERROR: Message timestamp mismatch. Expected $MESSAGE_TS, got $FOUND_TS. Is your channel_id correct?"
             exit 1
           fi
 
           echo "Found parent message."
         fi
     - name: Send main message to Slack channel
-      if: ${{ inputs.message_ts == '' && inputs.message != '' }}
-      uses: slackapi/slack-github-action@v2
-      id: main_message
-      with:
-        errors: true
-        method: chat.postMessage
-        token: ${{ inputs.token }}
-        payload: |
-          channel: "${{ inputs.channel_id }}"
-          text: "${{ inputs.message }}"
+      if: ${{ env.MESSAGE_TS == '' && env.MESSAGE != '' }}
+      id: main-message
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        # Convert literal \n to actual newlines so jq JSON-encodes them as \n for Slack
+        MESSAGE="${MESSAGE//\\n/$'\n'}"
+
+        RESPONSE=$(curl -s -X POST "https://slack.com/api/chat.postMessage" \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "Content-Type: application/json" \
+          -d "$(jq -n --arg channel "$CHANNEL_ID" --arg type "mrkdwn" --arg markdown_text "$MESSAGE" \
+            '{channel: $channel, markdown_text: $markdown_text}')")
+
+        if ! echo "$RESPONSE" | jq -e '.ok' > /dev/null; then
+          SLACK_ERROR=$(echo "$RESPONSE" | jq -r '.error // "unknown_error"')
+          echo "ERROR: Failed to send main message: $SLACK_ERROR"
+          exit 1
+        fi
+
+        TS=$(echo "$RESPONSE" | jq -r '.ts')
+        echo "ts=$TS" >> "$GITHUB_OUTPUT"
+        echo "Successfully sent main message (ts: $TS)"
     - name: Send thread reply
-      if: ${{ inputs.thread_message != '' }}
-      uses: slackapi/slack-github-action@v2
-      id: thread_reply
-      with:
-        method: chat.postMessage
-        token: ${{ inputs.token }}
-        payload: |
-          channel: "${{ inputs.channel_id }}"
-          thread_ts: "${{ inputs.message_ts || steps.main_message.outputs.ts }}"
-          text: "${{ inputs.thread_message }}"
+      if: ${{ env.THREAD_MESSAGE != '' }}
+      id: thread-reply
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        THREAD_TS="${MESSAGE_TS:-$MAIN_MESSAGE_TS}"
+
+        # Convert literal \n to actual newlines so jq JSON-encodes them as \n for Slack
+        THREAD_MESSAGE="${THREAD_MESSAGE//\\n/$'\n'}"
+
+        RESPONSE=$(curl -s -X POST "https://slack.com/api/chat.postMessage" \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "Content-Type: application/json" \
+          -d "$(jq -n --arg channel "$CHANNEL_ID" --arg thread_ts "$THREAD_TS" --arg markdown_text "$THREAD_MESSAGE" \
+            '{channel: $channel, thread_ts: $thread_ts, markdown_text: $markdown_text}')")
+
+        if ! echo "$RESPONSE" | jq -e '.ok' > /dev/null; then
+          SLACK_ERROR=$(echo "$RESPONSE" | jq -r '.error // "unknown_error"')
+          echo "ERROR: Failed to send thread reply: $SLACK_ERROR"
+          exit 1
+        fi
+
+        echo "Successfully sent thread reply"
+      env:
+        MAIN_MESSAGE_TS: ${{ steps.main-message.outputs.ts }}
