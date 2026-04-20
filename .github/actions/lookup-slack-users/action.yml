@@ -41,8 +41,8 @@ runs:
         fi
 
         if [ -z '${{ inputs.github_usernames }}' ]; then
-          echo "Error: no github_usernames were provided."
-          exit 1
+          echo "Warning: no github_usernames were provided."
+          exit 0
         fi
 
     - name: Build mentions and find unmatched
