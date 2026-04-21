@@ -20,13 +20,13 @@ on:
         type: "string"
         required: false
       number_of_reviewers:
-        default: 1
+        required: true
         type: number
         description: The number of reviewers to select
       number_of_repicks:
         default: 1
         type: number
-        description: The number of reviewers to select on subsequent runs
+        description: "Deprecated: use number_of_reviewers instead. Number of reviewers to select when number_of_reviewers is not set."
       channel_id:
         required: true
         description: The Slack Channel ID to notify
@@ -69,16 +69,20 @@ jobs:
       - name: Request Reviewers
         if: ${{ !inputs.show }}
         id: request-reviewers
-        uses: ./.github/actions/pickaroo
-        with:
-          include_teams: ${{ inputs.include_teams }}
-          include_users: ${{ inputs.include_users }}
-          exclude_teams: ${{ inputs.exclude_teams }}
-          exclude_users: ${{ inputs.exclude_users }} ${{ steps.find-comment.outputs.previously-picked }}
-          number_of_reviewers: ${{ steps.find-comment.outputs.message-ts != '' && inputs.number_of_repicks || inputs.number_of_reviewers }}
-          github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
-          slack_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
-          token: ${{ steps.generate-token.outputs.token }}
+        shell: bash
+        run: python .github/scripts/pickaroo.py select-reviewers
+        env:
+          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+          GH_INCLUDE_TEAMS: ${{ inputs.include_teams }}
+          GH_INCLUDE_USERS: ${{ inputs.include_users }}
+          GH_EXCLUDE_TEAMS: ${{ inputs.exclude_teams }}
+          GH_EXCLUDE_USERS: ${{ inputs.exclude_users }} ${{ steps.find-comment.outputs.previously-picked }}
+          GH_NUMBER_OF_REVIEWERS: ${{ inputs.number_of_reviewers }}
+          GH_NUMBER_OF_REPICKS: ${{ inputs.number_of_repicks }}
+          GH_PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          GH_SLACK_USER_MAP: ${{ vars.GH_SLACK_USER_MAP }}
+          SLACK_TOKEN: ${{ secrets.SLACK_OAUTH_TOKEN }}
 
       - name: Look up Slack users for new reviewers
         if: ${{ !inputs.show }}
