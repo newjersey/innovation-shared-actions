@@ -121,11 +121,34 @@ jobs:
         with:
           github_usernames: ${{ github.event.pull_request.user.login }}
           github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
+      - name: "Get current requested reviewers"
+        id: get-current-reviewers
+        if: ${{ needs.request-reviewers.outputs.reviewers != '' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          REVIEWERS=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/requested_reviewers \
+            --jq '[.users[].login] | join(" ")')
+          echo "reviewers=$REVIEWERS" >> $GITHUB_OUTPUT
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+      - name: "Look up current reviewers in Slack"
+        id: lookup-current-reviewers
+        if: ${{ steps.get-current-reviewers.conclusion == 'success' }}
+        uses: ./.github/actions/lookup-slack-users
+        with:
+          github_usernames: ${{ steps.get-current-reviewers.outputs.reviewers }}
+          github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
       - name: Build Slack message
         shell: bash
         run: |
           set -euo pipefail
-          echo "MESSAGE=[ <${PR_URL}|PR ${PR_TYPE}> ] ${REPO_NAME} - #${PR_NUMBER} by ${PR_AUTHOR}:\n\n**${PR_TITLE}**" >> "$GITHUB_ENV"
+          MESSAGE="[ <${PR_URL}|PR ${PR_TYPE}> ] ${REPO_NAME} - #${PR_NUMBER} by ${PR_AUTHOR}:\n\n**${PR_TITLE}**"
+          if [ -n "$CURRENT_REVIEWERS" ]; then
+            echo "MESSAGE=${MESSAGE}\n\nReviewers: ${CURRENT_REVIEWERS}" >> "$GITHUB_ENV"
+          else
+            echo "MESSAGE=${MESSAGE}" >> "$GITHUB_ENV"
+          fi
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
           PR_TYPE: ${{ inputs.show && 'Show' || 'Review' }}
@@ -133,6 +156,7 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PR_AUTHOR: ${{ steps.lookup-pr-author.outputs.formatted_string }}
           PR_TITLE: ${{ github.event.pull_request.title }}
+          CURRENT_REVIEWERS: ${{ steps.lookup-current-reviewers.outputs.formatted_string }}
       - name: Build thread message
         shell: bash
         run: |
