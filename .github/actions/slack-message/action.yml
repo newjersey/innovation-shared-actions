@@ -58,8 +58,8 @@ runs:
           exit 1
         fi
 
-        if [ -n "$MESSAGE_TS" ] && [ -z "$THREAD_MESSAGE" ]; then
-          echo "ERROR: When 'message_ts' is provided, 'thread_message' is required"
+        if [ -n "$MESSAGE_TS" ] && [ -z "$MESSAGE" ] && [ -z "$THREAD_MESSAGE" ]; then
+          echo "ERROR: When 'message_ts' is provided, either 'message' or 'thread_message' is required"
           exit 1
         fi
 
