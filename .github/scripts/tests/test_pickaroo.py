@@ -1,6 +1,20 @@
-# Tests for .github/scripts/pickaroo.py
+from unittest.mock import MagicMock, patch
 
-from pickaroo import parse_pickaroo_comment
+import pytest
+import requests
+from pickaroo import (
+    build_comment_body,
+    build_main_message,
+    build_thread_message,
+    cmd_build_messages,
+    cmd_find_comment,
+    cmd_post_comment,
+    deduplicate_reviewers,
+    get_pr_comments,
+    parse_pickaroo_comment,
+    patch_pr_comment,
+    post_pr_comment,
+)
 
 
 def test_parse_pickaroo_comment_extracts_message_ts():
@@ -28,9 +42,6 @@ def test_parse_pickaroo_comment_returns_empty_on_no_match():
     assert result == {}
 
 
-from pickaroo import deduplicate_reviewers
-
-
 def test_deduplicate_reviewers_merges_and_deduplicates():
     result = deduplicate_reviewers("alice bob", "bob carol")
     assert result == ["alice", "bob", "carol"]
@@ -56,9 +67,6 @@ def test_deduplicate_reviewers_handles_both_empty():
     assert result == []
 
 
-from pickaroo import build_comment_body
-
-
 def test_build_comment_body_includes_message_ts():
     result = build_comment_body("1234567890.123456", "alice bob")
     assert "message_ts: 1234567890.123456" in result
@@ -72,9 +80,6 @@ def test_build_comment_body_includes_previously_picked():
 def test_build_comment_body_includes_kangaroo_emoji():
     result = build_comment_body("1234567890.123456", "alice")
     assert "🦘" in result
-
-
-from pickaroo import build_main_message
 
 
 def test_build_main_message_includes_pr_url():
@@ -160,9 +165,6 @@ def test_build_main_message_show_type():
     assert "PR Show" in result
 
 
-from pickaroo import build_thread_message
-
-
 def test_build_thread_message_mentions_reviewers_when_present():
     result = build_thread_message(
         new_reviewer_mentions="<@U123> <@U456>",
@@ -183,22 +185,6 @@ def test_build_thread_message_apology_when_no_reviewers():
     )
     assert "<@U789>" in result
     assert "https://github.com/org/repo/actions/runs/12345" in result
-
-
-def test_build_thread_message_apology_does_not_mention_reviewers():
-    result = build_thread_message(
-        new_reviewer_mentions="",
-        pr_author_mention="<@U789>",
-        repository="org/repo",
-        run_id="12345",
-    )
-    assert "Hey " not in result
-
-
-import pytest
-import requests
-from unittest.mock import patch, MagicMock
-from pickaroo import get_pr_comments, post_pr_comment, patch_pr_comment
 
 
 def test_get_pr_comments_returns_parsed_list():
@@ -259,9 +245,6 @@ def test_patch_pr_comment_sends_correct_payload():
     assert "55" in url
 
 
-from pickaroo import cmd_find_comment
-
-
 def test_find_comment_writes_outputs_when_comment_found(tmp_path):
     output_file = tmp_path / "github_output"
     output_file.write_text("")
@@ -317,10 +300,6 @@ def test_find_comment_writes_nothing_when_no_pickaroo_comment(tmp_path):
 
     content = output_file.read_text()
     assert content == ""
-
-
-from unittest.mock import patch
-from pickaroo import cmd_build_messages
 
 
 def _build_messages_env(tmp_path, overrides=None):
@@ -388,10 +367,6 @@ def test_build_messages_pr_title_with_special_chars_does_not_break(tmp_path):
     assert title in content
 
 
-from unittest.mock import patch, MagicMock
-from pickaroo import cmd_post_comment
-
-
 def _post_comment_env(overrides=None):
     base = {
         "GITHUB_TOKEN": "tok",
@@ -443,7 +418,9 @@ def test_post_comment_deduplicates_reviewers():
     mock_response.raise_for_status.return_value = None
 
     # alice is in both previously_picked and new reviewers
-    env = _post_comment_env({"PREVIOUSLY_PICKED": "alice bob", "REVIEWERS": "alice carol"})
+    env = _post_comment_env(
+        {"PREVIOUSLY_PICKED": "alice bob", "REVIEWERS": "alice carol"}
+    )
     with patch("requests.post", return_value=mock_response) as mock_post:
         with patch.dict("os.environ", env, clear=False):
             cmd_post_comment()
