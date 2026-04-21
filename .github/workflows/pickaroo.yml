@@ -47,6 +47,8 @@ jobs:
     outputs:
       reviewers: ${{ steps.request-reviewers.outputs.reviewers }}
       message-ts: ${{ steps.check-comment.outputs.message-ts }}
+      previously-picked: ${{ steps.check-comment.outputs.previously-picked }}
+      comment-id: ${{ steps.check-comment.outputs.comment-id }}
     steps:
       - name: Generate GitHub App Token
         id: generate-token
@@ -60,24 +62,23 @@ jobs:
           set -euo pipefail
 
           echo "Checking for existing pickaroo comment on PR #${{ github.event.pull_request.number }}"
-          # Determines whether we're re-picking reviewers based on the presence of message-ts in a comment
-          if ! COMMENT=$(gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
-            --jq '
-              [.[] | select(.user.login == "ooi-pull-request-app[bot]" and (.body | contains("message_ts:")))] |
-              sort_by(.created_at) |
-              last | {id: .id, body: .body} |
-              @json' 2>&1); then
-            echo "ERROR: Failed to fetch PR comments: $COMMENT"
-            exit 1
-          fi
+          COMMENT=$(gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
+            --jq '[.[] | select(.body | contains("message_ts:"))] | sort_by(.created_at) | last // {} | {id: (.id // ""), body: (.body // "")}')
 
-          if [ -n "$COMMENT" ] && [ "$COMMENT" != "null" ]; then
-            # grep may not find a match, which is fine - use || true to prevent failure
-            MESSAGE_TS=$(echo "$COMMENT" | jq -r '.body' | grep -o 'message_ts: [0-9]\+\.[0-9]\+' | cut -d' ' -f2 || true)
-            if [ -n "$MESSAGE_TS" ]; then
-              echo "Found existing message_ts: $MESSAGE_TS"
-              echo "message-ts=$MESSAGE_TS" >> $GITHUB_OUTPUT
-            fi
+          COMMENT_ID=$(echo "$COMMENT" | jq -r '.id')
+          COMMENT_BODY=$(echo "$COMMENT" | jq -r '.body')
+
+          if [ -n "$COMMENT_ID" ] && [ -n "$COMMENT_BODY" ]; then
+            MESSAGE_TS=$(echo "$COMMENT_BODY" | grep -o 'message_ts: [0-9]\+\.[0-9]\+' | cut -d' ' -f2 || true)
+            PREVIOUSLY_PICKED=$(echo "$COMMENT_BODY" | grep 'previously_picked:' | sed 's/.*previously_picked: //' | sed 's/[[:space:]]*$//' || true)
+
+            echo "Found existing pickaroo comment: id=$COMMENT_ID, message_ts=$MESSAGE_TS, previously_picked=$PREVIOUSLY_PICKED"
+
+            [ -n "$MESSAGE_TS" ] && echo "message-ts=$MESSAGE_TS" >> $GITHUB_OUTPUT
+            echo "comment-id=$COMMENT_ID" >> $GITHUB_OUTPUT
+            [ -n "$PREVIOUSLY_PICKED" ] && echo "previously-picked=$PREVIOUSLY_PICKED" >> $GITHUB_OUTPUT
+          else
+            echo "No existing pickaroo comment found"
           fi
         env:
           GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
@@ -93,7 +94,7 @@ jobs:
           include_teams: ${{ inputs.include_teams }}
           include_users: ${{ inputs.include_users }}
           exclude_teams: ${{ inputs.exclude_teams }}
-          exclude_users: ${{ inputs.exclude_users }}
+          exclude_users: ${{ inputs.exclude_users }} ${{ steps.check-comment.outputs.previously-picked }}
           number_of_reviewers: ${{ steps.check-comment.outputs.message-ts != '' && inputs.number_of_repicks || inputs.number_of_reviewers }}
           github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
           slack_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
@@ -189,7 +190,7 @@ jobs:
 
   post-pr-comment:
     needs: [request-reviewers, post-slack-message]
-    if: ${{ needs.request-reviewers.outputs.message-ts == '' && needs.request-reviewers.result == 'success' && needs.post-slack-message.result == 'success' && needs.request-reviewers.outputs.reviewers != '' }}
+    if: ${{ needs.request-reviewers.result == 'success' && needs.post-slack-message.result == 'success' && needs.request-reviewers.outputs.reviewers != '' }}
     runs-on: ubuntu-latest
     steps:
       - name: Generate GitHub App Token
@@ -199,23 +200,46 @@ jobs:
           app-id: "2454947"
           private-key: ${{ secrets.OOI_PULL_REQUEST_APP }}
       - name: Post PR comment
+        shell: bash
         run: |
           set -euo pipefail
 
           MESSAGE_TS="${{ needs.post-slack-message.outputs.message-ts }}"
-          COMMENT_BODY="Pickaroo selected and notified reviewers for this PR! 🦘
+          PREVIOUSLY_PICKED="${{ needs.request-reviewers.outputs.previously-picked }}"
+          NEW_REVIEWERS="${{ needs.request-reviewers.outputs.reviewers }}"
+          COMMENT_ID="${{ needs.request-reviewers.outputs.comment-id }}"
 
-          message_ts: $MESSAGE_TS"
-
-          echo "Posting comment to PR #${{ github.event.pull_request.number }}"
-          if ! gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
-            -X POST \
-            -f body="$COMMENT_BODY" 2>&1; then
-            echo "ERROR: Failed to post PR comment"
-            exit 1
+          # Build deduplicated cumulative list of all previously picked reviewers
+          if [ -n "$PREVIOUSLY_PICKED" ]; then
+            ALL_PICKED=$(echo "$PREVIOUSLY_PICKED $NEW_REVIEWERS" | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/[[:space:]]*$//')
+          else
+            ALL_PICKED="$NEW_REVIEWERS"
           fi
 
-          echo "Successfully posted PR comment"
+          COMMENT_BODY="Pickaroo selected and notified reviewers for this PR! 🦘
+
+          message_ts: $MESSAGE_TS
+          previously_picked: $ALL_PICKED"
+
+          if [ -n "$COMMENT_ID" ] && [ "$COMMENT_ID" != "null" ]; then
+            echo "Updating existing comment $COMMENT_ID on PR #${{ github.event.pull_request.number }}"
+            if ! gh api repos/${{ github.repository }}/issues/comments/$COMMENT_ID \
+              -X PATCH \
+              -f body="$COMMENT_BODY" 2>&1; then
+              echo "ERROR: Failed to update PR comment"
+              exit 1
+            fi
+            echo "Successfully updated PR comment"
+          else
+            echo "Posting new comment to PR #${{ github.event.pull_request.number }}"
+            if ! gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
+              -X POST \
+              -f body="$COMMENT_BODY" 2>&1; then
+              echo "ERROR: Failed to post PR comment"
+              exit 1
+            fi
+            echo "Successfully posted PR comment"
+          fi
         env:
           GITHUB_TOKEN: ${{ steps.generate_token.outputs.token }}
 
