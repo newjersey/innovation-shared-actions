@@ -88,12 +88,28 @@ def _gh_headers(token: str) -> dict:
     return {**_GH_HEADERS, "Authorization": f"Bearer {token}"}
 
 
+def _next_page(link_header: str) -> str:
+    """Extract the next-page URL from a GitHub Link header, or return empty string."""
+    for part in link_header.split(","):
+        url, _, rel = part.strip().partition(";")
+        if rel.strip() == 'rel="next"':
+            return url.strip().strip("<>")
+    return ""
+
+
 def get_pr_comments(repo: str, pr_number: str, token: str) -> list:
-    """GET /repos/{repo}/issues/{pr_number}/comments"""
+    """GET /repos/{repo}/issues/{pr_number}/comments (all pages)"""
     url = f"{_GH_API}/repos/{repo}/issues/{pr_number}/comments"
-    response = requests.get(url, headers=_gh_headers(token))
-    response.raise_for_status()
-    return response.json()
+    params: dict = {"per_page": 100}
+    headers = _gh_headers(token)
+    all_comments: list = []
+    while url:
+        response = requests.get(url, params=params, headers=headers)
+        response.raise_for_status()
+        all_comments.extend(response.json())
+        url = _next_page(response.headers.get("Link", ""))
+        params = {}
+    return all_comments
 
 
 def post_pr_comment(repo: str, pr_number: str, token: str, body: str) -> dict:
@@ -151,7 +167,7 @@ def cmd_find_comment():
         print("No existing pickaroo comment found")
         return
 
-    last = pickaroo_comments[-1]
+    last = pickaroo_comments[0]
     comment_id = str(last["id"])
     parsed = parse_pickaroo_comment(last["body"])
 

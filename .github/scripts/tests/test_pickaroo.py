@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 from pickaroo import (
+    _next_page,
     build_comment_body,
     build_main_message,
     build_thread_message,
@@ -187,10 +188,25 @@ def test_build_thread_message_apology_when_no_reviewers():
     assert "https://github.com/org/repo/actions/runs/12345" in result
 
 
+def test_next_page_extracts_url_from_link_header():
+    link = '<https://api.github.com/repos/org/repo/issues/42/comments?page=2>; rel="next", <https://api.github.com/repos/org/repo/issues/42/comments?page=5>; rel="last"'
+    assert _next_page(link) == "https://api.github.com/repos/org/repo/issues/42/comments?page=2"
+
+
+def test_next_page_returns_empty_when_no_next():
+    link = '<https://api.github.com/repos/org/repo/issues/42/comments?page=5>; rel="last"'
+    assert _next_page(link) == ""
+
+
+def test_next_page_returns_empty_on_empty_header():
+    assert _next_page("") == ""
+
+
 def test_get_pr_comments_returns_parsed_list():
     mock_response = MagicMock()
     mock_response.json.return_value = [{"id": 1, "body": "hello"}]
     mock_response.raise_for_status.return_value = None
+    mock_response.headers = {"Link": ""}
 
     with patch("requests.get", return_value=mock_response) as mock_get:
         result = get_pr_comments("org/repo", "42", "token123")
@@ -199,6 +215,30 @@ def test_get_pr_comments_returns_parsed_list():
     url = mock_get.call_args[0][0]
     assert "org/repo" in url
     assert "42" in url
+    kwargs = mock_get.call_args[1]
+    assert kwargs["params"] == {"per_page": 100}
+
+
+def test_get_pr_comments_follows_pagination():
+    page1 = MagicMock()
+    page1.json.return_value = [{"id": 1, "body": "first"}]
+    page1.raise_for_status.return_value = None
+    page1.headers = {"Link": '<https://api.github.com/next?page=2>; rel="next"'}
+
+    page2 = MagicMock()
+    page2.json.return_value = [{"id": 2, "body": "second"}]
+    page2.raise_for_status.return_value = None
+    page2.headers = {"Link": ""}
+
+    with patch("requests.get", side_effect=[page1, page2]) as mock_get:
+        result = get_pr_comments("org/repo", "42", "token123")
+
+    assert result == [{"id": 1, "body": "first"}, {"id": 2, "body": "second"}]
+    assert mock_get.call_count == 2
+    # Second call uses the Link next URL directly with no extra params
+    second_call_url = mock_get.call_args_list[1][0][0]
+    assert second_call_url == "https://api.github.com/next?page=2"
+    assert mock_get.call_args_list[1][1]["params"] == {}
 
 
 def test_get_pr_comments_raises_on_non_200():
