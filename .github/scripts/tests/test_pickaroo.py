@@ -4,17 +4,28 @@ import pytest
 import requests
 from pickaroo import (
     _next_page,
+    build_candidate_pool,
     build_comment_body,
     build_main_message,
     build_thread_message,
     cmd_build_messages,
     cmd_find_comment,
     cmd_post_comment,
+    cmd_select_reviewers,
+    count_valid_existing,
     deduplicate_reviewers,
+    filter_ooo_candidates,
+    get_collaborators,
     get_pr_comments,
+    get_requested_reviewers,
+    get_slack_status,
+    get_team_members,
+    is_ooo,
     parse_pickaroo_comment,
     patch_pr_comment,
     post_pr_comment,
+    request_reviewers,
+    validate_slack_token,
 )
 
 
@@ -469,3 +480,503 @@ def test_post_comment_deduplicates_reviewers():
     assert body.count("alice") == 1
     assert "carol" in body
     assert "bob" in body
+
+
+# ---------------------------------------------------------------------------
+# GitHub API helpers
+# ---------------------------------------------------------------------------
+
+def test_get_team_members_returns_logins():
+    mock_response = MagicMock()
+    mock_response.json.return_value = [{"login": "alice"}, {"login": "bob"}]
+    mock_response.raise_for_status.return_value = None
+    mock_response.headers = {"Link": ""}
+
+    with patch("requests.get", return_value=mock_response) as mock_get:
+        result = get_team_members("myorg", "my-team", "tok")
+
+    assert result == ["alice", "bob"]
+    url = mock_get.call_args[0][0]
+    assert "myorg/teams/my-team/members" in url
+
+
+def test_get_team_members_paginates():
+    page1 = MagicMock()
+    page1.json.return_value = [{"login": "alice"}]
+    page1.raise_for_status.return_value = None
+    page1.headers = {"Link": '<https://api.github.com/next?page=2>; rel="next"'}
+
+    page2 = MagicMock()
+    page2.json.return_value = [{"login": "bob"}]
+    page2.raise_for_status.return_value = None
+    page2.headers = {"Link": ""}
+
+    with patch("requests.get", side_effect=[page1, page2]):
+        result = get_team_members("myorg", "my-team", "tok")
+
+    assert result == ["alice", "bob"]
+
+
+def test_get_collaborators_returns_logins():
+    mock_response = MagicMock()
+    mock_response.json.return_value = [{"login": "carol"}, {"login": "dave"}]
+    mock_response.raise_for_status.return_value = None
+    mock_response.headers = {"Link": ""}
+
+    with patch("requests.get", return_value=mock_response) as mock_get:
+        result = get_collaborators("org/repo", "tok")
+
+    assert result == ["carol", "dave"]
+    url = mock_get.call_args[0][0]
+    assert "org/repo/collaborators" in url
+
+
+def test_get_collaborators_paginates():
+    page1 = MagicMock()
+    page1.json.return_value = [{"login": "carol"}]
+    page1.raise_for_status.return_value = None
+    page1.headers = {"Link": '<https://api.github.com/next?page=2>; rel="next"'}
+
+    page2 = MagicMock()
+    page2.json.return_value = [{"login": "dave"}]
+    page2.raise_for_status.return_value = None
+    page2.headers = {"Link": ""}
+
+    with patch("requests.get", side_effect=[page1, page2]):
+        result = get_collaborators("org/repo", "tok")
+
+    assert result == ["carol", "dave"]
+
+
+def test_get_requested_reviewers_returns_user_logins():
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"users": [{"login": "alice"}, {"login": "bob"}], "teams": []}
+    mock_response.raise_for_status.return_value = None
+
+    with patch("requests.get", return_value=mock_response) as mock_get:
+        result = get_requested_reviewers("org/repo", "42", "tok")
+
+    assert result == ["alice", "bob"]
+    url = mock_get.call_args[0][0]
+    assert "org/repo/pulls/42/requested_reviewers" in url
+
+
+def test_get_requested_reviewers_returns_empty_when_no_users():
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"users": [], "teams": []}
+    mock_response.raise_for_status.return_value = None
+
+    with patch("requests.get", return_value=mock_response):
+        result = get_requested_reviewers("org/repo", "42", "tok")
+
+    assert result == []
+
+
+def test_request_reviewers_posts_correct_payload():
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"id": 1}
+    mock_response.raise_for_status.return_value = None
+
+    with patch("requests.post", return_value=mock_response) as mock_post:
+        result = request_reviewers("org/repo", "42", "tok", ["alice", "bob"])
+
+    assert mock_post.call_args[1]["json"] == {"reviewers": ["alice", "bob"]}
+    url = mock_post.call_args[0][0]
+    assert "org/repo/pulls/42/requested_reviewers" in url
+
+
+# ---------------------------------------------------------------------------
+# Slack helpers
+# ---------------------------------------------------------------------------
+
+def test_is_ooo_returns_false_for_empty_status():
+    assert is_ooo("", "") is False
+
+
+def test_is_ooo_returns_true_for_ooo_text():
+    assert is_ooo("out of office", "") is True
+
+
+def test_is_ooo_returns_true_for_ooo_emoji():
+    assert is_ooo("", ":palm_tree:") is True
+    assert is_ooo("", ":thermometer:") is True
+    assert is_ooo("", ":face_with_medical_mask:") is True
+    assert is_ooo("", ":face_vomiting:") is True
+    assert is_ooo("", ":airplane:") is True
+    assert is_ooo("", ":beach_with_umbrella:") is True
+
+
+def test_is_ooo_returns_true_for_vacation():
+    assert is_ooo("vacation time!", "") is True
+
+
+def test_is_ooo_returns_true_for_sick():
+    assert is_ooo("sick day", ":thermometer:") is True
+
+
+def test_is_ooo_returns_false_for_future_ooo():
+    """Future OOO indicators are treated as currently available."""
+    assert is_ooo("upcoming vacation", ":crystal_ball:") is False
+
+
+def test_is_ooo_is_case_insensitive():
+    assert is_ooo("OOO", "") is True
+    assert is_ooo("Vacation", "") is True
+
+
+def test_is_ooo_no_false_positive_on_substring():
+    assert is_ooo("fluent in Python", "") is False
+    assert is_ooo("unmasked", "") is False
+    assert is_ooo("leaves of absence", "") is False
+
+
+def test_get_slack_status_returns_text_and_emoji():
+    mock_response = MagicMock()
+    mock_response.json.return_value = {
+        "ok": True,
+        "profile": {"status_text": "on vacation", "status_emoji": ":palm_tree:"},
+    }
+    mock_response.raise_for_status.return_value = None
+
+    with patch("requests.get", return_value=mock_response) as mock_get:
+        text, emoji = get_slack_status("U123", "slack-token")
+
+    assert text == "on vacation"
+    assert emoji == ":palm_tree:"
+    assert "U123" in str(mock_get.call_args)
+
+
+def test_get_slack_status_returns_empty_strings_when_no_profile():
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"ok": True, "profile": {}}
+    mock_response.raise_for_status.return_value = None
+
+    with patch("requests.get", return_value=mock_response):
+        text, emoji = get_slack_status("U123", "slack-token")
+
+    assert text == ""
+    assert emoji == ""
+
+
+def test_validate_slack_token_returns_true_on_ok():
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"ok": True}
+    mock_response.raise_for_status.return_value = None
+
+    with patch("requests.post", return_value=mock_response):
+        assert validate_slack_token("slack-token") is True
+
+
+def test_validate_slack_token_returns_false_when_not_ok():
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"ok": False, "error": "invalid_auth"}
+    mock_response.raise_for_status.return_value = None
+
+    with patch("requests.post", return_value=mock_response):
+        assert validate_slack_token("bad-token") is False
+
+
+# ---------------------------------------------------------------------------
+# Selection logic
+# ---------------------------------------------------------------------------
+
+def test_count_valid_existing_counts_valid_reviewers():
+    result = count_valid_existing(
+        requested=["alice", "bob"],
+        include_set={"alice", "bob", "carol"},
+        exclude_set=set(),
+        collaborators_set={"alice", "bob", "carol"},
+        author="dave",
+    )
+    assert result == 2
+
+
+def test_count_valid_existing_excludes_reviewer_in_exclude_set():
+    result = count_valid_existing(
+        requested=["alice", "bob"],
+        include_set={"alice", "bob"},
+        exclude_set={"alice"},
+        collaborators_set={"alice", "bob"},
+        author="dave",
+    )
+    assert result == 1
+
+
+def test_count_valid_existing_excludes_pr_author():
+    result = count_valid_existing(
+        requested=["alice", "dave"],
+        include_set={"alice", "dave"},
+        exclude_set=set(),
+        collaborators_set={"alice", "dave"},
+        author="dave",
+    )
+    assert result == 1
+
+
+def test_count_valid_existing_excludes_non_collaborators():
+    result = count_valid_existing(
+        requested=["alice", "bob"],
+        include_set={"alice", "bob"},
+        exclude_set=set(),
+        collaborators_set={"alice"},  # bob is not a collaborator
+        author="dave",
+    )
+    assert result == 1
+
+
+def test_count_valid_existing_excludes_reviewer_not_in_include_set():
+    result = count_valid_existing(
+        requested=["alice", "external-user"],
+        include_set={"alice"},
+        exclude_set=set(),
+        collaborators_set={"alice", "external-user"},
+        author="dave",
+    )
+    assert result == 1
+
+
+def test_count_valid_existing_returns_zero_for_empty_requested():
+    result = count_valid_existing(
+        requested=[],
+        include_set={"alice", "bob"},
+        exclude_set=set(),
+        collaborators_set={"alice", "bob"},
+        author="dave",
+    )
+    assert result == 0
+
+
+def test_build_candidate_pool_returns_valid_candidates():
+    result = build_candidate_pool(
+        include_set={"alice", "bob", "carol"},
+        exclude_set=set(),
+        collaborators_set={"alice", "bob", "carol"},
+        author="dave",
+        already_requested=["alice"],
+    )
+    assert set(result) == {"bob", "carol"}
+
+
+def test_build_candidate_pool_excludes_author():
+    result = build_candidate_pool(
+        include_set={"alice", "dave"},
+        exclude_set=set(),
+        collaborators_set={"alice", "dave"},
+        author="dave",
+        already_requested=[],
+    )
+    assert "dave" not in result
+
+
+def test_build_candidate_pool_excludes_non_collaborators():
+    result = build_candidate_pool(
+        include_set={"alice", "bob"},
+        exclude_set=set(),
+        collaborators_set={"alice"},
+        author="dave",
+        already_requested=[],
+    )
+    # Set iteration order is non-deterministic; use set comparison
+    assert set(result) == {"alice"}
+
+
+def test_build_candidate_pool_excludes_already_requested():
+    result = build_candidate_pool(
+        include_set={"alice", "bob", "carol"},
+        exclude_set=set(),
+        collaborators_set={"alice", "bob", "carol"},
+        author="dave",
+        already_requested=["bob", "carol"],
+    )
+    assert set(result) == {"alice"}
+
+
+def test_build_candidate_pool_returns_empty_when_all_filtered():
+    result = build_candidate_pool(
+        include_set={"alice"},
+        exclude_set={"alice"},
+        collaborators_set={"alice"},
+        author="dave",
+        already_requested=[],
+    )
+    assert result == []
+
+
+def test_filter_ooo_candidates_includes_user_not_in_mapping():
+    result = filter_ooo_candidates(["alice"], {}, "slack-tok")
+    assert result == ["alice"]
+
+
+def test_filter_ooo_candidates_includes_available_user():
+    with patch("pickaroo.get_slack_status", return_value=("", "")):
+        result = filter_ooo_candidates(["alice"], {"alice": "U123"}, "slack-tok")
+    assert result == ["alice"]
+
+
+def test_filter_ooo_candidates_excludes_ooo_user():
+    with patch("pickaroo.get_slack_status", return_value=("on vacation", ":palm_tree:")):
+        result = filter_ooo_candidates(["alice"], {"alice": "U123"}, "slack-tok")
+    assert result == []
+
+
+def test_filter_ooo_candidates_includes_user_on_api_failure(capsys):
+    with patch("pickaroo.get_slack_status", side_effect=Exception("network error")):
+        result = filter_ooo_candidates(["alice"], {"alice": "U123"}, "slack-tok")
+    assert result == ["alice"]
+    assert "WARNING" in capsys.readouterr().out
+
+
+# ---------------------------------------------------------------------------
+# cmd_select_reviewers
+# ---------------------------------------------------------------------------
+
+
+def _select_reviewers_env(tmp_path, overrides=None):
+    """Base env for cmd_select_reviewers tests."""
+    github_output = tmp_path / "github_output"
+    github_output.write_text("")
+    base = {
+        "GITHUB_TOKEN": "tok",
+        "GITHUB_REPOSITORY": "org/repo",
+        "GH_PR_NUMBER": "42",
+        "GH_PR_AUTHOR": "author",
+        "GH_INCLUDE_TEAMS": "",
+        "GH_INCLUDE_USERS": "alice bob carol",
+        "GH_EXCLUDE_TEAMS": "",
+        "GH_EXCLUDE_USERS": "",
+        "GH_NUMBER_OF_REVIEWERS": "2",
+        "GH_NUMBER_OF_REPICKS": "1",
+        "GH_SLACK_USER_MAP": "",
+        "SLACK_TOKEN": "",
+        "GITHUB_OUTPUT": str(github_output),
+    }
+    if overrides:
+        base.update(overrides)
+    return github_output, base
+
+
+def test_cmd_select_reviewers_picks_needed_reviewers(tmp_path):
+    github_output, env = _select_reviewers_env(tmp_path)
+
+    with patch.dict("os.environ", env, clear=False):
+        with patch("pickaroo.get_collaborators", return_value=["alice", "bob", "carol", "dave"]):
+            with patch("pickaroo.get_requested_reviewers", return_value=[]):
+                with patch("pickaroo.request_reviewers") as mock_request:
+                    cmd_select_reviewers()
+
+    content = github_output.read_text()
+    assert "reviewers=" in content
+    # 2 reviewers should be picked
+    picked = content.split("reviewers=")[1].strip().split()
+    assert len(picked) == 2
+    assert all(r in {"alice", "bob", "carol"} for r in picked)
+    mock_request.assert_called_once()
+
+
+def test_cmd_select_reviewers_skips_when_slots_filled(tmp_path):
+    """No picks needed when valid_existing >= n."""
+    github_output, env = _select_reviewers_env(tmp_path, {
+        "GH_INCLUDE_USERS": "alice bob",
+        "GH_NUMBER_OF_REVIEWERS": "2",
+    })
+
+    with patch.dict("os.environ", env, clear=False):
+        with patch("pickaroo.get_collaborators", return_value=["alice", "bob"]):
+            with patch("pickaroo.get_requested_reviewers", return_value=["alice", "bob"]):
+                with patch("pickaroo.request_reviewers") as mock_request:
+                    cmd_select_reviewers()
+
+    content = github_output.read_text()
+    assert "reviewers=\n" in content
+    mock_request.assert_not_called()
+
+
+def test_cmd_select_reviewers_picks_only_missing_slots(tmp_path):
+    """When 1 of 2 slots is filled, picks exactly 1 more."""
+    github_output, env = _select_reviewers_env(tmp_path, {
+        "GH_INCLUDE_USERS": "alice bob carol",
+        "GH_NUMBER_OF_REVIEWERS": "2",
+    })
+
+    with patch.dict("os.environ", env, clear=False):
+        with patch("pickaroo.get_collaborators", return_value=["alice", "bob", "carol"]):
+            with patch("pickaroo.get_requested_reviewers", return_value=["alice"]):
+                with patch("pickaroo.request_reviewers") as mock_request:
+                    cmd_select_reviewers()
+
+    mock_request.assert_called_once()
+    picked = mock_request.call_args[0][3]  # 4th positional arg is reviewers list
+    assert len(picked) == 1
+    assert picked[0] in {"bob", "carol"}
+
+
+def test_cmd_select_reviewers_falls_back_to_repicks_when_reviewers_zero(tmp_path, capsys):
+    """number_of_reviewers=0 falls back to number_of_repicks with a deprecation warning."""
+    github_output, env = _select_reviewers_env(tmp_path, {
+        "GH_INCLUDE_USERS": "alice bob carol",
+        "GH_NUMBER_OF_REVIEWERS": "0",
+        "GH_NUMBER_OF_REPICKS": "1",
+    })
+
+    with patch.dict("os.environ", env, clear=False):
+        with patch("pickaroo.get_collaborators", return_value=["alice", "bob", "carol"]):
+            with patch("pickaroo.get_requested_reviewers", return_value=[]):
+                with patch("pickaroo.request_reviewers") as mock_request:
+                    cmd_select_reviewers()
+
+    captured = capsys.readouterr()
+    assert "WARNING" in captured.err
+    assert "number_of_reviewers" in captured.err
+    assert "newjersey.github.io" in captured.err
+    mock_request.assert_called_once()
+
+
+def test_cmd_select_reviewers_exits_1_when_both_zero(tmp_path):
+    """Both number_of_reviewers and number_of_repicks <= 0 → exit 1."""
+    github_output, env = _select_reviewers_env(tmp_path, {
+        "GH_NUMBER_OF_REVIEWERS": "0",
+        "GH_NUMBER_OF_REPICKS": "0",
+    })
+
+    with patch.dict("os.environ", env, clear=False):
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_select_reviewers()
+
+    assert exc_info.value.code == 1
+
+
+def test_cmd_select_reviewers_previously_picked_excluded(tmp_path):
+    """previously_picked passed in GH_EXCLUDE_USERS prevents repicking."""
+    github_output, env = _select_reviewers_env(tmp_path, {
+        "GH_INCLUDE_USERS": "alice bob carol",
+        "GH_EXCLUDE_USERS": "alice",  # alice was previously picked
+        "GH_NUMBER_OF_REVIEWERS": "1",
+    })
+
+    with patch.dict("os.environ", env, clear=False):
+        with patch("pickaroo.get_collaborators", return_value=["alice", "bob", "carol"]):
+            with patch("pickaroo.get_requested_reviewers", return_value=[]):
+                with patch("pickaroo.request_reviewers") as mock_request:
+                    cmd_select_reviewers()
+
+    picked = mock_request.call_args[0][3]
+    assert "alice" not in picked
+
+
+def test_cmd_select_reviewers_outputs_empty_when_no_candidates(tmp_path):
+    """When candidate pool is empty after filtering, writes reviewers= and exits cleanly."""
+    github_output, env = _select_reviewers_env(tmp_path, {
+        "GH_INCLUDE_USERS": "alice",
+        "GH_EXCLUDE_USERS": "alice",
+        "GH_NUMBER_OF_REVIEWERS": "1",
+    })
+
+    with patch.dict("os.environ", env, clear=False):
+        with patch("pickaroo.get_collaborators", return_value=["alice"]):
+            with patch("pickaroo.get_requested_reviewers", return_value=[]):
+                with patch("pickaroo.request_reviewers") as mock_request:
+                    cmd_select_reviewers()
+
+    content = github_output.read_text()
+    assert "reviewers=\n" in content
+    mock_request.assert_not_called()
