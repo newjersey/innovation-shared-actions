@@ -1,23 +1,23 @@
 import os
-import sys
 import re
+import sys
+
 import requests
 
-
 # ---------------------------------------------------------------------------
-# Pure logic helpers
+# Pure helpers
 # ---------------------------------------------------------------------------
 
 
 def parse_pickaroo_comment(body: str) -> dict:
     """Extract message_ts and previously_picked from a pickaroo PR comment body."""
     result = {}
-    ts_match = re.search(r'message_ts: (\d+\.\d+)', body)
+    ts_match = re.search(r"message_ts: (\d+\.\d+)", body)
     if ts_match:
-        result['message_ts'] = ts_match.group(1)
-    pp_match = re.search(r'previously_picked: (.+)', body)
+        result["message_ts"] = ts_match.group(1)
+    pp_match = re.search(r"previously_picked: (.+)", body)
     if pp_match:
-        result['previously_picked'] = pp_match.group(1).rstrip()
+        result["previously_picked"] = pp_match.group(1).rstrip()
     return result
 
 
@@ -45,11 +45,7 @@ def build_main_message(
     pr_title: str,
     current_reviewer_mentions: str,
 ) -> str:
-    """Build the main Slack message string.
-
-    Uses literal \\n (backslash-n) rather than actual newlines — the slack-message
-    action converts these to real newlines before sending to Slack.
-    """
+    """Build the main Slack message string."""
     message = (
         f"[ <{pr_url}|PR {pr_type}> ] {repo_name} - #{pr_number} by {author_mention}:"
         r"\n\n"
@@ -66,11 +62,7 @@ def build_thread_message(
     repository: str,
     run_id: str,
 ) -> str:
-    """Build the Slack thread reply string.
-
-    The caller decides whether to invoke this function at all — show mode
-    logic belongs in the build-messages subcommand, not here.
-    """
+    """Build the Slack thread reply string."""
     if new_reviewer_mentions:
         return f"Hey {new_reviewer_mentions} 🫵! Please review this pull request 🦘🙏"
     return (
@@ -86,7 +78,10 @@ def build_thread_message(
 # ---------------------------------------------------------------------------
 
 _GH_API = "https://api.github.com"
-_GH_HEADERS = {"Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}
+_GH_HEADERS = {
+    "Accept": "application/vnd.github+json",
+    "X-GitHub-Api-Version": "2022-11-28",
+}
 
 
 def _gh_headers(token: str) -> dict:
@@ -126,6 +121,7 @@ def patch_pr_comment(repo: str, comment_id: str, token: str, body: str) -> dict:
 # Entry point
 # ---------------------------------------------------------------------------
 
+
 def main():
     commands = {
         "find-comment": cmd_find_comment,
@@ -134,7 +130,10 @@ def main():
     }
     command = sys.argv[1] if len(sys.argv) > 1 else ""
     if command not in commands:
-        print(f"Unknown command: {command!r}. Available: {', '.join(commands)}", file=sys.stderr)
+        print(
+            f"Unknown command: {command!r}. Available: {', '.join(commands)}",
+            file=sys.stderr,
+        )
         sys.exit(1)
     commands[command]()
 
@@ -156,7 +155,9 @@ def cmd_find_comment():
     comment_id = str(last["id"])
     parsed = parse_pickaroo_comment(last["body"])
 
-    print(f"Found existing pickaroo comment: id={comment_id}, message_ts={parsed.get('message_ts', '')}")
+    print(
+        f"Found existing pickaroo comment: id={comment_id}, message_ts={parsed.get('message_ts', '')}"
+    )
 
     with open(github_output, "a") as f:
         if "message_ts" in parsed:

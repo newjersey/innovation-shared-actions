@@ -42,13 +42,10 @@ on:
         required: false
 
 jobs:
-  request-reviewers:
+  pickaroo:
     runs-on: ubuntu-latest
-    outputs:
-      reviewers: ${{ steps.request-reviewers.outputs.reviewers }}
-      message-ts: ${{ steps.check-comment.outputs.message-ts }}
-      previously-picked: ${{ steps.check-comment.outputs.previously-picked }}
-      comment-id: ${{ steps.check-comment.outputs.comment-id }}
+    permissions:
+      contents: read
     steps:
       - name: Generate GitHub App Token
         id: generate-token
@@ -56,36 +53,18 @@ jobs:
         with:
           app-id: "2454947"
           private-key: ${{ secrets.OOI_PULL_REQUEST_APP }}
-      - name: Check for existing pickaroo comment
-        id: check-comment
-        run: |
-          set -euo pipefail
 
-          echo "Checking for existing pickaroo comment on PR #${{ github.event.pull_request.number }}"
-          COMMENT=$(gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
-            --jq '[.[] | select(.body | contains("message_ts:"))] | sort_by(.created_at) | last // {} | {id: (.id // ""), body: (.body // "")}')
-
-          COMMENT_ID=$(echo "$COMMENT" | jq -r '.id')
-          COMMENT_BODY=$(echo "$COMMENT" | jq -r '.body')
-
-          if [ -n "$COMMENT_ID" ] && [ -n "$COMMENT_BODY" ]; then
-            MESSAGE_TS=$(echo "$COMMENT_BODY" | grep -o 'message_ts: [0-9]\+\.[0-9]\+' | cut -d' ' -f2 || true)
-            PREVIOUSLY_PICKED=$(echo "$COMMENT_BODY" | grep 'previously_picked:' | sed 's/.*previously_picked: //' | sed 's/[[:space:]]*$//' || true)
-
-            echo "Found existing pickaroo comment: id=$COMMENT_ID, message_ts=$MESSAGE_TS, previously_picked=$PREVIOUSLY_PICKED"
-
-            [ -n "$MESSAGE_TS" ] && echo "message-ts=$MESSAGE_TS" >> $GITHUB_OUTPUT
-            echo "comment-id=$COMMENT_ID" >> $GITHUB_OUTPUT
-            [ -n "$PREVIOUSLY_PICKED" ] && echo "previously-picked=$PREVIOUSLY_PICKED" >> $GITHUB_OUTPUT
-          else
-            echo "No existing pickaroo comment found"
-          fi
-        env:
-          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
       - uses: actions/checkout@v6
-        if: ${{ !inputs.show }}
         with:
           repository: newjersey/innovation-shared-actions
+
+      - name: Find existing pickaroo comment
+        id: find-comment
+        run: python .github/scripts/pickaroo.py find-comment
+        env:
+          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+
       - name: Request Reviewers
         if: ${{ !inputs.show }}
         id: request-reviewers
@@ -94,159 +73,84 @@ jobs:
           include_teams: ${{ inputs.include_teams }}
           include_users: ${{ inputs.include_users }}
           exclude_teams: ${{ inputs.exclude_teams }}
-          exclude_users: ${{ inputs.exclude_users }} ${{ steps.check-comment.outputs.previously-picked }}
-          number_of_reviewers: ${{ steps.check-comment.outputs.message-ts != '' && inputs.number_of_repicks || inputs.number_of_reviewers }}
+          exclude_users: ${{ inputs.exclude_users }} ${{ steps.find-comment.outputs.previously-picked }}
+          number_of_reviewers: ${{ steps.find-comment.outputs.message-ts != '' && inputs.number_of_repicks || inputs.number_of_reviewers }}
           github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
           slack_token: ${{ secrets.SLACK_OAUTH_TOKEN }}
           token: ${{ steps.generate-token.outputs.token }}
 
-  post-slack-message:
-    needs: [request-reviewers]
-    runs-on: ubuntu-latest
-    outputs:
-      message-ts: ${{ steps.send-slack-message.outputs.message_ts }}
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          repository: newjersey/innovation-shared-actions
-      - name: "Look up Slack user IDs"
+      - name: Look up Slack users for new reviewers
         if: ${{ !inputs.show }}
-        id: lookup-slack-users
+        id: lookup-new-reviewers
         uses: ./.github/actions/lookup-slack-users
         with:
-          github_usernames: ${{ needs.request-reviewers.outputs.reviewers }}
+          github_usernames: ${{ steps.request-reviewers.outputs.reviewers }}
           github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
-      - name: "Look up PR author in Slack"
+
+      - name: Look up PR author in Slack
         id: lookup-pr-author
         uses: ./.github/actions/lookup-slack-users
         with:
           github_usernames: ${{ github.event.pull_request.user.login }}
           github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
-      - name: "Get current requested reviewers"
+
+      - name: Get current requested reviewers
         id: get-current-reviewers
-        if: ${{ needs.request-reviewers.outputs.reviewers != '' }}
+        if: ${{ steps.request-reviewers.outputs.reviewers != '' }}
         shell: bash
         run: |
-          set -euo pipefail
-          REVIEWERS=$(gh api repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/requested_reviewers \
+          REVIEWERS=$(gh api repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/requested_reviewers \
             --jq '[.users[].login] | join(" ")')
           echo "reviewers=$REVIEWERS" >> $GITHUB_OUTPUT
         env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           GITHUB_TOKEN: ${{ github.token }}
-      - name: "Look up current reviewers in Slack"
+
+      - name: Look up current reviewers in Slack
         id: lookup-current-reviewers
         if: ${{ steps.get-current-reviewers.conclusion == 'success' }}
         uses: ./.github/actions/lookup-slack-users
         with:
           github_usernames: ${{ steps.get-current-reviewers.outputs.reviewers }}
           github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
-      - name: Build Slack message
-        shell: bash
-        run: |
-          set -euo pipefail
-          MESSAGE="[ <${PR_URL}|PR ${PR_TYPE}> ] ${REPO_NAME} - #${PR_NUMBER} by ${PR_AUTHOR}:\n\n**${PR_TITLE}**"
-          if [ -n "$CURRENT_REVIEWERS" ]; then
-            echo "MESSAGE=${MESSAGE}\n\nReviewers: ${CURRENT_REVIEWERS}" >> "$GITHUB_ENV"
-          else
-            echo "MESSAGE=${MESSAGE}" >> "$GITHUB_ENV"
-          fi
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          PR_TYPE: ${{ inputs.show && 'Show' || 'Review' }}
-          REPO_NAME: ${{ github.event.repository.name }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_AUTHOR: ${{ steps.lookup-pr-author.outputs.formatted_string }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          CURRENT_REVIEWERS: ${{ steps.lookup-current-reviewers.outputs.formatted_string }}
-      - name: Build thread message
-        shell: bash
-        run: |
-          set -euo pipefail
 
-          if [ -n "$REVIEWERS" ]; then
-            # Reviewers were found - tag them
-            echo "THREAD_MESSAGE=Hey ${SLACK_USERS} 🫵! Please review this pull request 🦘🙏" >> "$GITHUB_ENV"
-          elif [ "$SHOW" == "false" ]; then
-            # No reviewers found and this is a review request (not a show)
-            echo "THREAD_MESSAGE=Sorry ${PR_AUTHOR}, likely due to their Slack status no potential reviewers are available. <https://github.com/${REPOSITORY}/actions/runs/${RUN_ID}|Check workflow run> for details. Ask Eeny for help and/or manually assign some reviewers." >> "$GITHUB_ENV"
-          else
-            # No message needed (show mode with no reviewers)
-            echo "THREAD_MESSAGE=" >> "$GITHUB_ENV"
-          fi
+      - name: Build Slack messages
+        run: python .github/scripts/pickaroo.py build-messages
         env:
-          REVIEWERS: ${{ needs.request-reviewers.outputs.reviewers }}
-          SLACK_USERS: ${{ steps.lookup-slack-users.outputs.formatted_string }}
+          REVIEWERS: ${{ steps.request-reviewers.outputs.reviewers }}
+          NEW_REVIEWER_MENTIONS: ${{ steps.lookup-new-reviewers.outputs.formatted_string }}
+          CURRENT_REVIEWER_MENTIONS: ${{ steps.lookup-current-reviewers.outputs.formatted_string }}
+          AUTHOR_MENTION: ${{ steps.lookup-pr-author.outputs.formatted_string }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           SHOW: ${{ inputs.show }}
-          PR_AUTHOR: ${{ steps.lookup-pr-author.outputs.formatted_string }}
-          REPOSITORY: ${{ github.repository }}
-          RUN_ID: ${{ github.run_id }}
+
       - name: Send Slack message
         id: send-slack-message
         uses: ./.github/actions/slack-message
         env:
           CHANNEL_ID: ${{ inputs.channel_id }}
-          MESSAGE_TS: ${{ needs.request-reviewers.outputs.message-ts }}
+          MESSAGE_TS: ${{ steps.find-comment.outputs.message-ts }}
           TOKEN: ${{ secrets.SLACK_OAUTH_TOKEN }}
 
-  post-pr-comment:
-    needs: [request-reviewers, post-slack-message]
-    if: ${{ needs.request-reviewers.result == 'success' && needs.post-slack-message.result == 'success' && needs.request-reviewers.outputs.reviewers != '' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Generate GitHub App Token
-        id: generate_token
-        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
-        with:
-          app-id: "2454947"
-          private-key: ${{ secrets.OOI_PULL_REQUEST_APP }}
       - name: Post PR comment
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          MESSAGE_TS="${{ needs.post-slack-message.outputs.message-ts }}"
-          PREVIOUSLY_PICKED="${{ needs.request-reviewers.outputs.previously-picked }}"
-          NEW_REVIEWERS="${{ needs.request-reviewers.outputs.reviewers }}"
-          COMMENT_ID="${{ needs.request-reviewers.outputs.comment-id }}"
-
-          # Build deduplicated cumulative list of all previously picked reviewers
-          if [ -n "$PREVIOUSLY_PICKED" ]; then
-            ALL_PICKED=$(echo "$PREVIOUSLY_PICKED $NEW_REVIEWERS" | tr ' ' '\n' | sort -u | tr '\n' ' ' | sed 's/[[:space:]]*$//')
-          else
-            ALL_PICKED="$NEW_REVIEWERS"
-          fi
-
-          COMMENT_BODY="Pickaroo selected and notified reviewers for this PR! 🦘
-
-          message_ts: $MESSAGE_TS
-          previously_picked: $ALL_PICKED"
-
-          if [ -n "$COMMENT_ID" ] && [ "$COMMENT_ID" != "null" ]; then
-            echo "Updating existing comment $COMMENT_ID on PR #${{ github.event.pull_request.number }}"
-            if ! gh api repos/${{ github.repository }}/issues/comments/$COMMENT_ID \
-              -X PATCH \
-              -f body="$COMMENT_BODY" 2>&1; then
-              echo "ERROR: Failed to update PR comment"
-              exit 1
-            fi
-            echo "Successfully updated PR comment"
-          else
-            echo "Posting new comment to PR #${{ github.event.pull_request.number }}"
-            if ! gh api repos/${{ github.repository }}/issues/${{ github.event.pull_request.number }}/comments \
-              -X POST \
-              -f body="$COMMENT_BODY" 2>&1; then
-              echo "ERROR: Failed to post PR comment"
-              exit 1
-            fi
-            echo "Successfully posted PR comment"
-          fi
+        if: ${{ steps.request-reviewers.outputs.reviewers != '' }}
+        run: python .github/scripts/pickaroo.py post-comment
         env:
-          GITHUB_TOKEN: ${{ steps.generate_token.outputs.token }}
+          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REVIEWERS: ${{ steps.request-reviewers.outputs.reviewers }}
+          PREVIOUSLY_PICKED: ${{ steps.find-comment.outputs.previously-picked }}
+          MESSAGE_TS: ${{ steps.send-slack-message.outputs.message_ts }}
+          COMMENT_ID: ${{ steps.find-comment.outputs.comment-id }}
 
   remove-label:
     # only remove a label if one was added
     if: ${{ always() && github.event.action == 'labeled' }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - name: Generate GitHub App Token
         id: generate_token
