@@ -135,7 +135,6 @@ jobs:
           TOKEN: ${{ secrets.SLACK_OAUTH_TOKEN }}
 
       - name: Post PR comment
-        if: ${{ steps.request-reviewers.outputs.reviewers != '' }}
         run: python .github/scripts/pickaroo.py post-comment
         env:
           GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
