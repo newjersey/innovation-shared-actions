@@ -128,6 +128,28 @@ runs:
         TS=$(echo "$RESPONSE" | jq -r '.ts')
         echo "ts=$TS" >> "$GITHUB_OUTPUT"
         echo "Successfully sent main message (ts: $TS)"
+    - name: Update main message
+      if: ${{ env.MESSAGE_TS != '' && env.MESSAGE != '' }}
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        # Convert literal \n to actual newlines so jq JSON-encodes them correctly
+        MESSAGE="${MESSAGE//\\n/$'\n'}"
+
+        RESPONSE=$(curl -s -X POST "https://slack.com/api/chat.update" \
+          -H "Authorization: Bearer $TOKEN" \
+          -H "Content-Type: application/json" \
+          -d "$(jq -n --arg channel "$CHANNEL_ID" --arg ts "$MESSAGE_TS" --arg markdown_text "$MESSAGE" \
+            '{channel: $channel, ts: $ts, markdown_text: $markdown_text}')")
+
+        if ! echo "$RESPONSE" | jq -e '.ok' > /dev/null; then
+          SLACK_ERROR=$(echo "$RESPONSE" | jq -r '.error // "unknown_error"')
+          echo "ERROR: Failed to update main message: $SLACK_ERROR"
+          exit 1
+        fi
+
+        echo "Successfully updated main message (ts: $MESSAGE_TS)"
     - name: Send thread reply
       if: ${{ env.THREAD_MESSAGE != '' }}
       id: thread-reply
