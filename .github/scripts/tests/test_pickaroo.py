@@ -103,7 +103,7 @@ def test_build_main_message_includes_pr_url():
         pr_number="42",
         author_mention="<@U123>",
         pr_title="Fix the bug",
-        current_reviewer_mentions="",
+        all_reviewer_mentions="",
     )
     assert "https://github.com/org/repo/pull/42" in result
 
@@ -116,7 +116,7 @@ def test_build_main_message_includes_repo_pr_author_title():
         pr_number="42",
         author_mention="<@U123>",
         pr_title="Fix the bug",
-        current_reviewer_mentions="",
+        all_reviewer_mentions="",
     )
     assert "my-repo" in result
     assert "#42" in result
@@ -132,7 +132,7 @@ def test_build_main_message_omits_reviewers_when_empty():
         pr_number="42",
         author_mention="<@U123>",
         pr_title="Fix the bug",
-        current_reviewer_mentions="",
+        all_reviewer_mentions="",
     )
     assert "Reviewers:" not in result
 
@@ -145,7 +145,7 @@ def test_build_main_message_includes_reviewers_when_present():
         pr_number="42",
         author_mention="<@U123>",
         pr_title="Fix the bug",
-        current_reviewer_mentions="<@U456>, <@U789>",
+        all_reviewer_mentions="<@U456>, <@U789>",
     )
     assert "Reviewers: <@U456>, <@U789>" in result
 
@@ -159,7 +159,7 @@ def test_build_main_message_uses_literal_newlines():
         pr_number="1",
         author_mention="@user",
         pr_title="My PR",
-        current_reviewer_mentions="",
+        all_reviewer_mentions="",
     )
     assert "\\n" in result
     assert "\n" not in result
@@ -173,14 +173,14 @@ def test_build_main_message_show_type():
         pr_number="1",
         author_mention="@user",
         pr_title="My PR",
-        current_reviewer_mentions="",
+        all_reviewer_mentions="",
     )
     assert "PR Show" in result
 
 
 def test_build_thread_message_mentions_reviewers_when_present():
     result = build_thread_message(
-        new_reviewer_mentions="<@U123> <@U456>",
+        picked_reviewer_mentions="<@U123> <@U456>",
         pr_author_mention="<@U789>",
         repository="org/repo",
         run_id="12345",
@@ -191,7 +191,7 @@ def test_build_thread_message_mentions_reviewers_when_present():
 
 def test_build_thread_message_apology_when_no_reviewers():
     result = build_thread_message(
-        new_reviewer_mentions="",
+        picked_reviewer_mentions="",
         pr_author_mention="<@U789>",
         repository="org/repo",
         run_id="12345",
@@ -359,9 +359,9 @@ def _build_messages_env(tmp_path, overrides=None):
     github_env.write_text("")
     base = {
         "GITHUB_ENV": str(github_env),
-        "REVIEWERS": "alice",
-        "NEW_REVIEWER_MENTIONS": "<@U123>",
-        "CURRENT_REVIEWER_MENTIONS": "<@U123>",
+        "PICKED_REVIEWERS": "alice",
+        "PICKED_REVIEWER_MENTIONS": "<@U123>",
+        "ALL_REVIEWER_MENTIONS": "<@U123>",
         "AUTHOR_MENTION": "<@U999>",
         "PR_URL": "https://github.com/org/repo/pull/1",
         "PR_NUMBER": "1",
@@ -394,7 +394,7 @@ def test_build_messages_writes_thread_message_when_reviewers_found(tmp_path):
 
 
 def test_build_messages_skips_thread_message_in_show_mode(tmp_path):
-    github_env, env = _build_messages_env(tmp_path, {"SHOW": "true", "REVIEWERS": ""})
+    github_env, env = _build_messages_env(tmp_path, {"SHOW": "true", "PICKED_REVIEWERS": ""})
     with patch.dict("os.environ", env, clear=False):
         cmd_build_messages()
     content = github_env.read_text()
@@ -424,7 +424,7 @@ def _post_comment_env(overrides=None):
         "GITHUB_TOKEN": "tok",
         "GITHUB_REPOSITORY": "org/repo",
         "PR_NUMBER": "7",
-        "REVIEWERS": "carol",
+        "PICKED_REVIEWERS": "carol",
         "PREVIOUSLY_PICKED": "alice bob",
         "MESSAGE_TS": "1234567890.654321",
         "COMMENT_ID": "",
@@ -471,7 +471,7 @@ def test_post_comment_deduplicates_reviewers():
 
     # alice is in both previously_picked and new reviewers
     env = _post_comment_env(
-        {"PREVIOUSLY_PICKED": "alice bob", "REVIEWERS": "alice carol"}
+        {"PREVIOUSLY_PICKED": "alice bob", "PICKED_REVIEWERS": "alice carol"}
     )
     with patch("requests.post", return_value=mock_response) as mock_post:
         with patch.dict("os.environ", env, clear=False):
@@ -950,12 +950,36 @@ def test_cmd_select_reviewers_picks_needed_reviewers(tmp_path):
                         cmd_select_reviewers()
 
     content = github_output.read_text()
-    assert "reviewers=" in content
+    assert "picked_reviewers=" in content
     # 2 reviewers should be picked
-    picked = content.split("reviewers=")[1].strip().split()
+    picked = content.split("picked_reviewers=")[1].splitlines()[0].split()
     assert len(picked) == 2
     assert all(r in {"alice", "bob", "carol"} for r in picked)
     mock_request.assert_called_once()
+    # all_reviewers should equal the newly picked (no prior requested)
+    lines = {line.split("=")[0]: line.split("=", 1)[1] for line in content.strip().splitlines()}
+    assert set(lines["all_reviewers"].split()) == set(lines["picked_reviewers"].split())
+
+
+def test_cmd_select_reviewers_all_reviewers_includes_existing_and_new(tmp_path):
+    """all_reviewers output combines pre-existing requested reviewers with new picks."""
+    github_output, env = _select_reviewers_env(tmp_path, {
+        "GH_INCLUDE_USERS": "alice bob carol",
+        "GH_NUMBER_OF_REVIEWERS": "1",
+    })
+
+    with patch.dict("os.environ", env, clear=False):
+        with patch("pickaroo.get_collaborators", return_value=["alice", "bob", "carol"]):
+            with patch("pickaroo.get_requested_reviewers", return_value=["alice"]):
+                with patch("pickaroo.get_pr_reviews", return_value=[]):
+                    with patch("pickaroo.request_reviewers"):
+                        cmd_select_reviewers()
+
+    content = github_output.read_text()
+    lines = {line.split("=")[0]: line.split("=", 1)[1] for line in content.strip().splitlines()}
+    current = set(lines["all_reviewers"].split())
+    assert "alice" in current  # was already requested
+    assert len(current) == 2   # alice + 1 new pick
 
 
 def test_cmd_select_reviewers_picks_one_more_when_slots_filled(tmp_path):
@@ -1093,7 +1117,7 @@ def test_cmd_select_reviewers_previously_picked_excluded(tmp_path):
 
 
 def test_cmd_select_reviewers_outputs_empty_when_no_candidates(tmp_path):
-    """When candidate pool is empty after filtering, writes reviewers= and exits cleanly."""
+    """When candidate pool is empty after filtering, writes reviewers= and all_reviewers= and exits cleanly."""
     github_output, env = _select_reviewers_env(tmp_path, {
         "GH_INCLUDE_USERS": "alice",
         "GH_EXCLUDE_USERS": "alice",
@@ -1109,4 +1133,5 @@ def test_cmd_select_reviewers_outputs_empty_when_no_candidates(tmp_path):
 
     content = github_output.read_text()
     assert "reviewers=\n" in content
+    assert "all_reviewers=\n" in content
     mock_request.assert_not_called()

@@ -89,7 +89,7 @@ jobs:
         id: lookup-new-reviewers
         uses: ./.github/actions/lookup-slack-users
         with:
-          github_usernames: ${{ steps.request-reviewers.outputs.reviewers }}
+          github_usernames: ${{ steps.request-reviewers.outputs.picked_reviewers }}
           github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
 
       - name: Look up PR author in Slack
@@ -99,32 +99,20 @@ jobs:
           github_usernames: ${{ github.event.pull_request.user.login }}
           github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
 
-      - name: Get current requested reviewers
-        id: get-current-reviewers
-        if: ${{ steps.request-reviewers.outputs.reviewers != '' }}
-        shell: bash
-        run: |
-          REVIEWERS=$(gh api repos/$GITHUB_REPOSITORY/pulls/$PR_NUMBER/requested_reviewers \
-            --jq '[.users[].login] | join(" ")')
-          echo "reviewers=$REVIEWERS" >> $GITHUB_OUTPUT
-        env:
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          GITHUB_TOKEN: ${{ github.token }}
-
       - name: Look up current reviewers in Slack
         id: lookup-current-reviewers
-        if: ${{ steps.get-current-reviewers.conclusion == 'success' }}
+        if: ${{ !inputs.show }}
         uses: ./.github/actions/lookup-slack-users
         with:
-          github_usernames: ${{ steps.get-current-reviewers.outputs.reviewers }}
+          github_usernames: ${{ steps.request-reviewers.outputs.all_reviewers }}
           github_slack_mapping: ${{ vars.GH_SLACK_USER_MAP }}
 
       - name: Build Slack messages
         run: python .github/scripts/pickaroo.py build-messages
         env:
-          REVIEWERS: ${{ steps.request-reviewers.outputs.reviewers }}
-          NEW_REVIEWER_MENTIONS: ${{ steps.lookup-new-reviewers.outputs.formatted_string }}
-          CURRENT_REVIEWER_MENTIONS: ${{ steps.lookup-current-reviewers.outputs.formatted_string }}
+          PICKED_REVIEWERS: ${{ steps.request-reviewers.outputs.picked_reviewers }}
+          PICKED_REVIEWER_MENTIONS: ${{ steps.lookup-new-reviewers.outputs.formatted_string }}
+          ALL_REVIEWER_MENTIONS: ${{ steps.lookup-current-reviewers.outputs.formatted_string }}
           AUTHOR_MENTION: ${{ steps.lookup-pr-author.outputs.formatted_string }}
           PR_URL: ${{ github.event.pull_request.html_url }}
           PR_TITLE: ${{ github.event.pull_request.title }}
@@ -144,7 +132,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
-          REVIEWERS: ${{ steps.request-reviewers.outputs.reviewers }}
+          PICKED_REVIEWERS: ${{ steps.request-reviewers.outputs.picked_reviewers }}
           PREVIOUSLY_PICKED: ${{ steps.find-comment.outputs.previously-picked }}
           MESSAGE_TS: ${{ steps.send-slack-message.outputs.message_ts }}
           COMMENT_ID: ${{ steps.find-comment.outputs.comment-id }}
