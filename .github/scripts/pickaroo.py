@@ -177,6 +177,31 @@ def get_requested_reviewers(repo: str, pr_number: str, token: str) -> list:
     return [u["login"] for u in response.json().get("users", [])]
 
 
+def get_pr_reviews(repo: str, pr_number: str, token: str) -> list:
+    """GET /repos/{repo}/pulls/{pr_number}/reviews — returns unique reviewer login strings.
+
+    A reviewer may appear multiple times (e.g. requested changes then approved),
+    so results are deduplicated while preserving first-seen order.
+    """
+    url = f"{_GH_API}/repos/{repo}/pulls/{pr_number}/reviews"
+    headers = _gh_headers(token)
+    all_reviews = []
+    params = {"per_page": 100}
+    while url:
+        response = requests.get(url, params=params, headers=headers)
+        response.raise_for_status()
+        all_reviews.extend(r["user"]["login"] for r in response.json())
+        url = _next_page(response.headers.get("Link", ""))
+        params = {}
+    seen: set = set()
+    unique = []
+    for login in all_reviews:
+        if login not in seen:
+            seen.add(login)
+            unique.append(login)
+    return unique
+
+
 def request_reviewers(repo: str, pr_number: str, token: str, reviewers: list) -> dict:
     """POST /repos/{repo}/pulls/{pr_number}/requested_reviewers"""
     url = f"{_GH_API}/repos/{repo}/pulls/{pr_number}/requested_reviewers"
@@ -250,20 +275,23 @@ def get_slack_status(slack_user_id: str, token: str) -> tuple:
 
 def count_valid_existing(
     requested: list,
+    reviewed: list,
     include_set: set,
     exclude_set: set,
     collaborators_set: set,
     author: str,
 ) -> int:
-    """Count currently-requested reviewers that are valid for this include pool.
+    """Count reviewers (requested or already reviewed) valid for this include pool.
 
     A reviewer counts only if they are in the include set, not in the exclude
     set, are a repository collaborator, and are not the PR author. Slack OOO
     status is intentionally not checked here — existing assignments always count.
+    Requested and reviewed lists are unioned so a reviewer who did both counts once.
     """
+    all_reviewers = set(requested) | set(reviewed)
     return sum(
         1
-        for r in requested
+        for r in all_reviewers
         if r in include_set
         and r not in exclude_set
         and r in collaborators_set
@@ -277,9 +305,14 @@ def build_candidate_pool(
     collaborators_set: set,
     author: str,
     already_requested: list,
+    already_reviewed: list,
 ) -> list:
-    """Return eligible candidates for new reviewer picks."""
-    already_set = set(already_requested)
+    """Return eligible candidates for new reviewer picks.
+
+    Excludes anyone who is currently a requested reviewer or has already
+    submitted a review — they don't need to be requested again.
+    """
+    already_set = set(already_requested) | set(already_reviewed)
     return [
         u
         for u in include_set
@@ -396,21 +429,20 @@ def cmd_select_reviewers():
     print(f"Fetching existing reviewers for PR #{pr_number}")
     requested = get_requested_reviewers(repo, pr_number, token)
     print(f"Currently requested reviewers: {requested}")
+    reviewed = get_pr_reviews(repo, pr_number, token)
+    print(f"Already reviewed by: {reviewed}")
 
     valid_existing = count_valid_existing(
-        requested, include_set, exclude_set, collaborators_set, pr_author
+        requested, reviewed, include_set, exclude_set, collaborators_set, pr_author
     )
     print(f"Valid existing reviewers: {valid_existing} / {n} required")
 
-    to_pick = max(0, n - valid_existing)
-    if to_pick == 0:
-        print("Reviewer slots already satisfied — no new picks needed")
-        with open(github_output, "a") as f:
-            f.write("reviewers=\n")
-        return
+    # Always pick at least 1: if slots are full, add 1 more for authors who want
+    # extra coverage; if slots are short, fill them all.
+    to_pick = max(1, n - valid_existing)
 
     candidates = build_candidate_pool(
-        include_set, exclude_set, collaborators_set, pr_author, requested
+        include_set, exclude_set, collaborators_set, pr_author, requested, reviewed
     )
 
     if not candidates:
