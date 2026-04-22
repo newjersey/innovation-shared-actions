@@ -17,6 +17,7 @@ from pickaroo import (
     filter_ooo_candidates,
     get_collaborators,
     get_pr_comments,
+    get_pr_reviews,
     get_requested_reviewers,
     get_slack_status,
     get_team_members,
@@ -572,6 +573,39 @@ def test_get_requested_reviewers_returns_empty_when_no_users():
     assert result == []
 
 
+def test_get_pr_reviews_returns_unique_reviewer_logins():
+    mock_response = MagicMock()
+    mock_response.json.return_value = [
+        {"user": {"login": "alice"}},
+        {"user": {"login": "bob"}},
+    ]
+    mock_response.raise_for_status.return_value = None
+    mock_response.headers = {}
+
+    with patch("requests.get", return_value=mock_response) as mock_get:
+        result = get_pr_reviews("org/repo", "42", "tok")
+
+    assert result == ["alice", "bob"]
+    url = mock_get.call_args[0][0]
+    assert "org/repo/pulls/42/reviews" in url
+
+
+def test_get_pr_reviews_deduplicates_multiple_reviews_from_same_user():
+    mock_response = MagicMock()
+    mock_response.json.return_value = [
+        {"user": {"login": "alice"}},
+        {"user": {"login": "bob"}},
+        {"user": {"login": "alice"}},  # alice reviewed again
+    ]
+    mock_response.raise_for_status.return_value = None
+    mock_response.headers = {}
+
+    with patch("requests.get", return_value=mock_response):
+        result = get_pr_reviews("org/repo", "42", "tok")
+
+    assert result == ["alice", "bob"]
+
+
 def test_request_reviewers_posts_correct_payload():
     mock_response = MagicMock()
     mock_response.json.return_value = {"id": 1}
@@ -683,6 +717,7 @@ def test_validate_slack_token_returns_false_when_not_ok():
 def test_count_valid_existing_counts_valid_reviewers():
     result = count_valid_existing(
         requested=["alice", "bob"],
+        reviewed=[],
         include_set={"alice", "bob", "carol"},
         exclude_set=set(),
         collaborators_set={"alice", "bob", "carol"},
@@ -694,6 +729,7 @@ def test_count_valid_existing_counts_valid_reviewers():
 def test_count_valid_existing_excludes_reviewer_in_exclude_set():
     result = count_valid_existing(
         requested=["alice", "bob"],
+        reviewed=[],
         include_set={"alice", "bob"},
         exclude_set={"alice"},
         collaborators_set={"alice", "bob"},
@@ -705,6 +741,7 @@ def test_count_valid_existing_excludes_reviewer_in_exclude_set():
 def test_count_valid_existing_excludes_pr_author():
     result = count_valid_existing(
         requested=["alice", "dave"],
+        reviewed=[],
         include_set={"alice", "dave"},
         exclude_set=set(),
         collaborators_set={"alice", "dave"},
@@ -716,6 +753,7 @@ def test_count_valid_existing_excludes_pr_author():
 def test_count_valid_existing_excludes_non_collaborators():
     result = count_valid_existing(
         requested=["alice", "bob"],
+        reviewed=[],
         include_set={"alice", "bob"},
         exclude_set=set(),
         collaborators_set={"alice"},  # bob is not a collaborator
@@ -727,6 +765,7 @@ def test_count_valid_existing_excludes_non_collaborators():
 def test_count_valid_existing_excludes_reviewer_not_in_include_set():
     result = count_valid_existing(
         requested=["alice", "external-user"],
+        reviewed=[],
         include_set={"alice"},
         exclude_set=set(),
         collaborators_set={"alice", "external-user"},
@@ -738,12 +777,39 @@ def test_count_valid_existing_excludes_reviewer_not_in_include_set():
 def test_count_valid_existing_returns_zero_for_empty_requested():
     result = count_valid_existing(
         requested=[],
+        reviewed=[],
         include_set={"alice", "bob"},
         exclude_set=set(),
         collaborators_set={"alice", "bob"},
         author="dave",
     )
     assert result == 0
+
+
+def test_count_valid_existing_counts_reviewed_users():
+    """Users who have already submitted a review count as existing reviewers."""
+    result = count_valid_existing(
+        requested=[],
+        reviewed=["alice", "bob"],
+        include_set={"alice", "bob", "carol"},
+        exclude_set=set(),
+        collaborators_set={"alice", "bob", "carol"},
+        author="dave",
+    )
+    assert result == 2
+
+
+def test_count_valid_existing_deduplicates_requested_and_reviewed():
+    """A user who is both requested and reviewed counts only once."""
+    result = count_valid_existing(
+        requested=["alice"],
+        reviewed=["alice", "bob"],
+        include_set={"alice", "bob"},
+        exclude_set=set(),
+        collaborators_set={"alice", "bob"},
+        author="dave",
+    )
+    assert result == 2
 
 
 def test_build_candidate_pool_returns_valid_candidates():
@@ -753,6 +819,7 @@ def test_build_candidate_pool_returns_valid_candidates():
         collaborators_set={"alice", "bob", "carol"},
         author="dave",
         already_requested=["alice"],
+        already_reviewed=[],
     )
     assert set(result) == {"bob", "carol"}
 
@@ -764,6 +831,7 @@ def test_build_candidate_pool_excludes_author():
         collaborators_set={"alice", "dave"},
         author="dave",
         already_requested=[],
+        already_reviewed=[],
     )
     assert "dave" not in result
 
@@ -775,6 +843,7 @@ def test_build_candidate_pool_excludes_non_collaborators():
         collaborators_set={"alice"},
         author="dave",
         already_requested=[],
+        already_reviewed=[],
     )
     # Set iteration order is non-deterministic; use set comparison
     assert set(result) == {"alice"}
@@ -787,6 +856,20 @@ def test_build_candidate_pool_excludes_already_requested():
         collaborators_set={"alice", "bob", "carol"},
         author="dave",
         already_requested=["bob", "carol"],
+        already_reviewed=[],
+    )
+    assert set(result) == {"alice"}
+
+
+def test_build_candidate_pool_excludes_already_reviewed():
+    """Users who already submitted a review are not candidates for re-request."""
+    result = build_candidate_pool(
+        include_set={"alice", "bob", "carol"},
+        exclude_set=set(),
+        collaborators_set={"alice", "bob", "carol"},
+        author="dave",
+        already_requested=[],
+        already_reviewed=["bob", "carol"],
     )
     assert set(result) == {"alice"}
 
@@ -798,6 +881,7 @@ def test_build_candidate_pool_returns_empty_when_all_filtered():
         collaborators_set={"alice"},
         author="dave",
         already_requested=[],
+        already_reviewed=[],
     )
     assert result == []
 
@@ -861,8 +945,9 @@ def test_cmd_select_reviewers_picks_needed_reviewers(tmp_path):
     with patch.dict("os.environ", env, clear=False):
         with patch("pickaroo.get_collaborators", return_value=["alice", "bob", "carol", "dave"]):
             with patch("pickaroo.get_requested_reviewers", return_value=[]):
-                with patch("pickaroo.request_reviewers") as mock_request:
-                    cmd_select_reviewers()
+                with patch("pickaroo.get_pr_reviews", return_value=[]):
+                    with patch("pickaroo.request_reviewers") as mock_request:
+                        cmd_select_reviewers()
 
     content = github_output.read_text()
     assert "reviewers=" in content
@@ -873,22 +958,63 @@ def test_cmd_select_reviewers_picks_needed_reviewers(tmp_path):
     mock_request.assert_called_once()
 
 
-def test_cmd_select_reviewers_skips_when_slots_filled(tmp_path):
-    """No picks needed when valid_existing >= n."""
+def test_cmd_select_reviewers_picks_one_more_when_slots_filled(tmp_path):
+    """When valid_existing >= n, picks exactly 1 additional reviewer."""
     github_output, env = _select_reviewers_env(tmp_path, {
-        "GH_INCLUDE_USERS": "alice bob",
+        "GH_INCLUDE_USERS": "alice bob carol",
         "GH_NUMBER_OF_REVIEWERS": "2",
     })
 
     with patch.dict("os.environ", env, clear=False):
-        with patch("pickaroo.get_collaborators", return_value=["alice", "bob"]):
+        with patch("pickaroo.get_collaborators", return_value=["alice", "bob", "carol"]):
             with patch("pickaroo.get_requested_reviewers", return_value=["alice", "bob"]):
-                with patch("pickaroo.request_reviewers") as mock_request:
-                    cmd_select_reviewers()
+                with patch("pickaroo.get_pr_reviews", return_value=[]):
+                    with patch("pickaroo.request_reviewers") as mock_request:
+                        cmd_select_reviewers()
 
-    content = github_output.read_text()
-    assert "reviewers=\n" in content
-    mock_request.assert_not_called()
+    mock_request.assert_called_once()
+    picked = mock_request.call_args[0][3]
+    assert len(picked) == 1
+    assert picked[0] == "carol"
+
+
+def test_cmd_select_reviewers_counts_already_reviewed(tmp_path):
+    """Users who have already reviewed count toward valid_existing."""
+    github_output, env = _select_reviewers_env(tmp_path, {
+        "GH_INCLUDE_USERS": "alice bob carol dave",
+        "GH_NUMBER_OF_REVIEWERS": "2",
+    })
+
+    with patch.dict("os.environ", env, clear=False):
+        with patch("pickaroo.get_collaborators", return_value=["alice", "bob", "carol", "dave"]):
+            with patch("pickaroo.get_requested_reviewers", return_value=["alice"]):
+                with patch("pickaroo.get_pr_reviews", return_value=["bob"]):
+                    with patch("pickaroo.request_reviewers") as mock_request:
+                        cmd_select_reviewers()
+
+    # alice (requested) + bob (reviewed) = 2 valid existing = slots filled → picks 1 more
+    mock_request.assert_called_once()
+    picked = mock_request.call_args[0][3]
+    assert len(picked) == 1
+    assert picked[0] in {"carol", "dave"}
+
+
+def test_cmd_select_reviewers_reviewed_not_in_candidate_pool(tmp_path):
+    """Users who have already reviewed are excluded from candidate selection."""
+    github_output, env = _select_reviewers_env(tmp_path, {
+        "GH_INCLUDE_USERS": "alice bob carol",
+        "GH_NUMBER_OF_REVIEWERS": "1",
+    })
+
+    with patch.dict("os.environ", env, clear=False):
+        with patch("pickaroo.get_collaborators", return_value=["alice", "bob", "carol"]):
+            with patch("pickaroo.get_requested_reviewers", return_value=[]):
+                with patch("pickaroo.get_pr_reviews", return_value=["alice", "bob"]):
+                    with patch("pickaroo.request_reviewers") as mock_request:
+                        cmd_select_reviewers()
+
+    picked = mock_request.call_args[0][3]
+    assert picked == ["carol"]
 
 
 def test_cmd_select_reviewers_picks_only_missing_slots(tmp_path):
@@ -901,8 +1027,9 @@ def test_cmd_select_reviewers_picks_only_missing_slots(tmp_path):
     with patch.dict("os.environ", env, clear=False):
         with patch("pickaroo.get_collaborators", return_value=["alice", "bob", "carol"]):
             with patch("pickaroo.get_requested_reviewers", return_value=["alice"]):
-                with patch("pickaroo.request_reviewers") as mock_request:
-                    cmd_select_reviewers()
+                with patch("pickaroo.get_pr_reviews", return_value=[]):
+                    with patch("pickaroo.request_reviewers") as mock_request:
+                        cmd_select_reviewers()
 
     mock_request.assert_called_once()
     picked = mock_request.call_args[0][3]  # 4th positional arg is reviewers list
@@ -921,8 +1048,9 @@ def test_cmd_select_reviewers_falls_back_to_repicks_when_reviewers_zero(tmp_path
     with patch.dict("os.environ", env, clear=False):
         with patch("pickaroo.get_collaborators", return_value=["alice", "bob", "carol"]):
             with patch("pickaroo.get_requested_reviewers", return_value=[]):
-                with patch("pickaroo.request_reviewers") as mock_request:
-                    cmd_select_reviewers()
+                with patch("pickaroo.get_pr_reviews", return_value=[]):
+                    with patch("pickaroo.request_reviewers") as mock_request:
+                        cmd_select_reviewers()
 
     captured = capsys.readouterr()
     assert "WARNING" in captured.err
@@ -956,8 +1084,9 @@ def test_cmd_select_reviewers_previously_picked_excluded(tmp_path):
     with patch.dict("os.environ", env, clear=False):
         with patch("pickaroo.get_collaborators", return_value=["alice", "bob", "carol"]):
             with patch("pickaroo.get_requested_reviewers", return_value=[]):
-                with patch("pickaroo.request_reviewers") as mock_request:
-                    cmd_select_reviewers()
+                with patch("pickaroo.get_pr_reviews", return_value=[]):
+                    with patch("pickaroo.request_reviewers") as mock_request:
+                        cmd_select_reviewers()
 
     picked = mock_request.call_args[0][3]
     assert "alice" not in picked
@@ -974,8 +1103,9 @@ def test_cmd_select_reviewers_outputs_empty_when_no_candidates(tmp_path):
     with patch.dict("os.environ", env, clear=False):
         with patch("pickaroo.get_collaborators", return_value=["alice"]):
             with patch("pickaroo.get_requested_reviewers", return_value=[]):
-                with patch("pickaroo.request_reviewers") as mock_request:
-                    cmd_select_reviewers()
+                with patch("pickaroo.get_pr_reviews", return_value=[]):
+                    with patch("pickaroo.request_reviewers") as mock_request:
+                        cmd_select_reviewers()
 
     content = github_output.read_text()
     assert "reviewers=\n" in content
