@@ -45,7 +45,7 @@ def build_main_message(
     pr_number: str,
     author_mention: str,
     pr_title: str,
-    current_reviewer_mentions: str,
+    all_reviewer_mentions: str,
 ) -> str:
     """Build the main Slack message string."""
     message = (
@@ -53,20 +53,20 @@ def build_main_message(
         r"\n\n"
         f"**{pr_title}**"
     )
-    if current_reviewer_mentions:
-        message += r"\n\n" + f"Reviewers: {current_reviewer_mentions}"
+    if all_reviewer_mentions:
+        message += r"\n\n" + f"Reviewers: {all_reviewer_mentions}"
     return message
 
 
 def build_thread_message(
-    new_reviewer_mentions: str,
+    picked_reviewer_mentions: str,
     pr_author_mention: str,
     repository: str,
     run_id: str,
 ) -> str:
     """Build the Slack thread reply string."""
-    if new_reviewer_mentions:
-        return f"Hey {new_reviewer_mentions} 🫵! Please review this pull request 🦘🙏"
+    if picked_reviewer_mentions:
+        return f"Hey {picked_reviewer_mentions} 🫵! Please review this pull request 🦘🙏"
     return (
         f"Sorry {pr_author_mention}, likely due to their Slack status no potential reviewers "
         f"are available. "
@@ -448,7 +448,8 @@ def cmd_select_reviewers():
     if not candidates:
         print("WARNING: No eligible candidates found after filtering")
         with open(github_output, "a") as f:
-            f.write("reviewers=\n")
+            f.write("picked_reviewers=\n")
+            f.write(f"all_reviewers={' '.join(requested)}\n")
         return
 
     # Optional Slack OOO filtering
@@ -474,7 +475,8 @@ def cmd_select_reviewers():
             if not candidates:
                 print("WARNING: All candidates filtered out by Slack status")
                 with open(github_output, "a") as f:
-                    f.write("reviewers=\n")
+                    f.write("picked_reviewers=\n")
+                    f.write(f"all_reviewers={' '.join(requested)}\n")
                 return
 
     pick_count = min(to_pick, len(candidates))
@@ -484,8 +486,10 @@ def cmd_select_reviewers():
     request_reviewers(repo, pr_number, token, picked)
     print(f"Successfully requested reviewers: {picked}")
 
+    all_reviewers = requested + picked
     with open(github_output, "a") as f:
-        f.write(f"reviewers={' '.join(picked)}\n")
+        f.write(f"picked_reviewers={' '.join(picked)}\n")
+        f.write(f"all_reviewers={' '.join(all_reviewers)}\n")
 
 
 # ---------------------------------------------------------------------------
@@ -543,8 +547,8 @@ def cmd_build_messages():
     github_env = os.environ["GITHUB_ENV"]
     show = os.environ.get("SHOW", "false").lower() == "true"
 
-    new_reviewer_mentions = os.environ.get("NEW_REVIEWER_MENTIONS", "")
-    current_reviewer_mentions = os.environ.get("CURRENT_REVIEWER_MENTIONS", "")
+    picked_reviewer_mentions = os.environ.get("PICKED_REVIEWER_MENTIONS", "")
+    all_reviewer_mentions = os.environ.get("ALL_REVIEWER_MENTIONS", "")
     author_mention = os.environ.get("AUTHOR_MENTION", "")
     pr_url = os.environ["PR_URL"]
     pr_number = os.environ["PR_NUMBER"]
@@ -561,14 +565,14 @@ def cmd_build_messages():
         pr_number=pr_number,
         author_mention=author_mention,
         pr_title=pr_title,
-        current_reviewer_mentions=current_reviewer_mentions,
+        all_reviewer_mentions=all_reviewer_mentions,
     )
 
     if show:
         thread_message = ""
     else:
         thread_message = build_thread_message(
-            new_reviewer_mentions=new_reviewer_mentions,
+            picked_reviewer_mentions=picked_reviewer_mentions,
             pr_author_mention=author_mention,
             repository=repository,
             run_id=run_id,
@@ -583,7 +587,7 @@ def cmd_post_comment():
     token = os.environ["GITHUB_TOKEN"]
     repo = os.environ["GITHUB_REPOSITORY"]
     pr_number = os.environ["PR_NUMBER"]
-    reviewers = os.environ.get("REVIEWERS", "")
+    reviewers = os.environ.get("PICKED_REVIEWERS", "")
     previously_picked = os.environ.get("PREVIOUSLY_PICKED", "")
     message_ts = os.environ.get("MESSAGE_TS", "")
     comment_id = os.environ.get("COMMENT_ID", "")
