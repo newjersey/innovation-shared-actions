@@ -58,6 +58,16 @@ def build_main_message(
     return message
 
 
+_THREAD_MESSAGE_TEMPLATES = [
+    "Hey {mentions}! It's Pickaroo :kangaroo: and I pick-a-you to review this pull request :pray:",
+    "Hi {mentions}, you're up to bat! :baseball_batter:",
+    "Tag!! {mentions} :index_pointing_at_the_viewer: you've been PICKED.",
+    "Congrats {mentions}! You've been volun-told to review this PR. Off you go :nail_care:",
+    "Um... hey {mentions}... could you :point_right::point_left: maybe review this? ...no rush! :see_no_evil: ...pls? :homer-disappear:",
+    "The code cries out, {mentions}! A PR of unknown consequence awaits your review.",
+]
+
+
 def build_thread_message(
     picked_reviewer_mentions: str,
     pr_author_mention: str,
@@ -66,12 +76,13 @@ def build_thread_message(
 ) -> str:
     """Build the Slack thread reply string."""
     if picked_reviewer_mentions:
-        return f"Hey {picked_reviewer_mentions} 🫵! Please review this pull request 🦘🙏"
+        template = random.choice(_THREAD_MESSAGE_TEMPLATES)
+        return template.format(mentions=picked_reviewer_mentions)
     return (
         f"Sorry {pr_author_mention}, likely due to their Slack status no potential reviewers "
         f"are available. "
         f"<https://github.com/{repository}/actions/runs/{run_id}|Check workflow run> for details. "
-        f"Ask Eeny for help and/or manually assign some reviewers."
+        f"Ask Eeny for help and/or manually assign some reviewers to the PR."
     )
 
 
@@ -400,7 +411,7 @@ def cmd_select_reviewers():
         n = number_of_repicks
     else:
         print(
-            "ERROR: number_of_reviewers is required and must be a positive integer.",
+            "ERROR: number_of_reviewers is required and must be a positive integer. Did you mean to configure a SHOW pr?",
             file=sys.stderr,
         )
         sys.exit(1)

@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import requests
 from pickaroo import (
+    _THREAD_MESSAGE_TEMPLATES,
     _next_page,
     build_candidate_pool,
     build_comment_body,
@@ -178,6 +179,13 @@ def test_build_main_message_show_type():
     assert "PR Show" in result
 
 
+def test_all_thread_message_templates_contain_mentions():
+    """Every template must include the reviewer mentions."""
+    for template in _THREAD_MESSAGE_TEMPLATES:
+        result = template.format(mentions="<@U123>")
+        assert "<@U123>" in result, f"Template missing mentions: {template!r}"
+
+
 def test_build_thread_message_mentions_reviewers_when_present():
     result = build_thread_message(
         picked_reviewer_mentions="<@U123> <@U456>",
@@ -202,11 +210,16 @@ def test_build_thread_message_apology_when_no_reviewers():
 
 def test_next_page_extracts_url_from_link_header():
     link = '<https://api.github.com/repos/org/repo/issues/42/comments?page=2>; rel="next", <https://api.github.com/repos/org/repo/issues/42/comments?page=5>; rel="last"'
-    assert _next_page(link) == "https://api.github.com/repos/org/repo/issues/42/comments?page=2"
+    assert (
+        _next_page(link)
+        == "https://api.github.com/repos/org/repo/issues/42/comments?page=2"
+    )
 
 
 def test_next_page_returns_empty_when_no_next():
-    link = '<https://api.github.com/repos/org/repo/issues/42/comments?page=5>; rel="last"'
+    link = (
+        '<https://api.github.com/repos/org/repo/issues/42/comments?page=5>; rel="last"'
+    )
     assert _next_page(link) == ""
 
 
@@ -394,7 +407,9 @@ def test_build_messages_writes_thread_message_when_reviewers_found(tmp_path):
 
 
 def test_build_messages_skips_thread_message_in_show_mode(tmp_path):
-    github_env, env = _build_messages_env(tmp_path, {"SHOW": "true", "PICKED_REVIEWERS": ""})
+    github_env, env = _build_messages_env(
+        tmp_path, {"SHOW": "true", "PICKED_REVIEWERS": ""}
+    )
     with patch.dict("os.environ", env, clear=False):
         cmd_build_messages()
     content = github_env.read_text()
@@ -487,6 +502,7 @@ def test_post_comment_deduplicates_reviewers():
 # GitHub API helpers
 # ---------------------------------------------------------------------------
 
+
 def test_get_team_members_returns_logins():
     mock_response = MagicMock()
     mock_response.json.return_value = [{"login": "alice"}, {"login": "bob"}]
@@ -551,7 +567,10 @@ def test_get_collaborators_paginates():
 
 def test_get_requested_reviewers_returns_user_logins():
     mock_response = MagicMock()
-    mock_response.json.return_value = {"users": [{"login": "alice"}, {"login": "bob"}], "teams": []}
+    mock_response.json.return_value = {
+        "users": [{"login": "alice"}, {"login": "bob"}],
+        "teams": [],
+    }
     mock_response.raise_for_status.return_value = None
 
     with patch("requests.get", return_value=mock_response) as mock_get:
@@ -622,6 +641,7 @@ def test_request_reviewers_posts_correct_payload():
 # ---------------------------------------------------------------------------
 # Slack helpers
 # ---------------------------------------------------------------------------
+
 
 def test_is_ooo_returns_false_for_empty_status():
     assert is_ooo("", "") is False
@@ -713,6 +733,7 @@ def test_validate_slack_token_returns_false_when_not_ok():
 # ---------------------------------------------------------------------------
 # Selection logic
 # ---------------------------------------------------------------------------
+
 
 def test_count_valid_existing_counts_valid_reviewers():
     result = count_valid_existing(
@@ -898,7 +919,9 @@ def test_filter_ooo_candidates_includes_available_user():
 
 
 def test_filter_ooo_candidates_excludes_ooo_user():
-    with patch("pickaroo.get_slack_status", return_value=("on vacation", ":palm_tree:")):
+    with patch(
+        "pickaroo.get_slack_status", return_value=("on vacation", ":palm_tree:")
+    ):
         result = filter_ooo_candidates(["alice"], {"alice": "U123"}, "slack-tok")
     assert result == []
 
@@ -943,7 +966,9 @@ def test_cmd_select_reviewers_picks_needed_reviewers(tmp_path):
     github_output, env = _select_reviewers_env(tmp_path)
 
     with patch.dict("os.environ", env, clear=False):
-        with patch("pickaroo.get_collaborators", return_value=["alice", "bob", "carol", "dave"]):
+        with patch(
+            "pickaroo.get_collaborators", return_value=["alice", "bob", "carol", "dave"]
+        ):
             with patch("pickaroo.get_requested_reviewers", return_value=[]):
                 with patch("pickaroo.get_pr_reviews", return_value=[]):
                     with patch("pickaroo.request_reviewers") as mock_request:
@@ -957,41 +982,59 @@ def test_cmd_select_reviewers_picks_needed_reviewers(tmp_path):
     assert all(r in {"alice", "bob", "carol"} for r in picked)
     mock_request.assert_called_once()
     # all_reviewers should equal the newly picked (no prior requested)
-    lines = {line.split("=")[0]: line.split("=", 1)[1] for line in content.strip().splitlines()}
+    lines = {
+        line.split("=")[0]: line.split("=", 1)[1]
+        for line in content.strip().splitlines()
+    }
     assert set(lines["all_reviewers"].split()) == set(lines["picked_reviewers"].split())
 
 
 def test_cmd_select_reviewers_all_reviewers_includes_existing_and_new(tmp_path):
     """all_reviewers output combines pre-existing requested reviewers with new picks."""
-    github_output, env = _select_reviewers_env(tmp_path, {
-        "GH_INCLUDE_USERS": "alice bob carol",
-        "GH_NUMBER_OF_REVIEWERS": "1",
-    })
+    github_output, env = _select_reviewers_env(
+        tmp_path,
+        {
+            "GH_INCLUDE_USERS": "alice bob carol",
+            "GH_NUMBER_OF_REVIEWERS": "1",
+        },
+    )
 
     with patch.dict("os.environ", env, clear=False):
-        with patch("pickaroo.get_collaborators", return_value=["alice", "bob", "carol"]):
+        with patch(
+            "pickaroo.get_collaborators", return_value=["alice", "bob", "carol"]
+        ):
             with patch("pickaroo.get_requested_reviewers", return_value=["alice"]):
                 with patch("pickaroo.get_pr_reviews", return_value=[]):
                     with patch("pickaroo.request_reviewers"):
                         cmd_select_reviewers()
 
     content = github_output.read_text()
-    lines = {line.split("=")[0]: line.split("=", 1)[1] for line in content.strip().splitlines()}
+    lines = {
+        line.split("=")[0]: line.split("=", 1)[1]
+        for line in content.strip().splitlines()
+    }
     current = set(lines["all_reviewers"].split())
     assert "alice" in current  # was already requested
-    assert len(current) == 2   # alice + 1 new pick
+    assert len(current) == 2  # alice + 1 new pick
 
 
 def test_cmd_select_reviewers_picks_one_more_when_slots_filled(tmp_path):
     """When valid_existing >= n, picks exactly 1 additional reviewer."""
-    github_output, env = _select_reviewers_env(tmp_path, {
-        "GH_INCLUDE_USERS": "alice bob carol",
-        "GH_NUMBER_OF_REVIEWERS": "2",
-    })
+    github_output, env = _select_reviewers_env(
+        tmp_path,
+        {
+            "GH_INCLUDE_USERS": "alice bob carol",
+            "GH_NUMBER_OF_REVIEWERS": "2",
+        },
+    )
 
     with patch.dict("os.environ", env, clear=False):
-        with patch("pickaroo.get_collaborators", return_value=["alice", "bob", "carol"]):
-            with patch("pickaroo.get_requested_reviewers", return_value=["alice", "bob"]):
+        with patch(
+            "pickaroo.get_collaborators", return_value=["alice", "bob", "carol"]
+        ):
+            with patch(
+                "pickaroo.get_requested_reviewers", return_value=["alice", "bob"]
+            ):
                 with patch("pickaroo.get_pr_reviews", return_value=[]):
                     with patch("pickaroo.request_reviewers") as mock_request:
                         cmd_select_reviewers()
@@ -1004,13 +1047,18 @@ def test_cmd_select_reviewers_picks_one_more_when_slots_filled(tmp_path):
 
 def test_cmd_select_reviewers_counts_already_reviewed(tmp_path):
     """Users who have already reviewed count toward valid_existing."""
-    github_output, env = _select_reviewers_env(tmp_path, {
-        "GH_INCLUDE_USERS": "alice bob carol dave",
-        "GH_NUMBER_OF_REVIEWERS": "2",
-    })
+    github_output, env = _select_reviewers_env(
+        tmp_path,
+        {
+            "GH_INCLUDE_USERS": "alice bob carol dave",
+            "GH_NUMBER_OF_REVIEWERS": "2",
+        },
+    )
 
     with patch.dict("os.environ", env, clear=False):
-        with patch("pickaroo.get_collaborators", return_value=["alice", "bob", "carol", "dave"]):
+        with patch(
+            "pickaroo.get_collaborators", return_value=["alice", "bob", "carol", "dave"]
+        ):
             with patch("pickaroo.get_requested_reviewers", return_value=["alice"]):
                 with patch("pickaroo.get_pr_reviews", return_value=["bob"]):
                     with patch("pickaroo.request_reviewers") as mock_request:
@@ -1025,13 +1073,18 @@ def test_cmd_select_reviewers_counts_already_reviewed(tmp_path):
 
 def test_cmd_select_reviewers_reviewed_not_in_candidate_pool(tmp_path):
     """Users who have already reviewed are excluded from candidate selection."""
-    github_output, env = _select_reviewers_env(tmp_path, {
-        "GH_INCLUDE_USERS": "alice bob carol",
-        "GH_NUMBER_OF_REVIEWERS": "1",
-    })
+    github_output, env = _select_reviewers_env(
+        tmp_path,
+        {
+            "GH_INCLUDE_USERS": "alice bob carol",
+            "GH_NUMBER_OF_REVIEWERS": "1",
+        },
+    )
 
     with patch.dict("os.environ", env, clear=False):
-        with patch("pickaroo.get_collaborators", return_value=["alice", "bob", "carol"]):
+        with patch(
+            "pickaroo.get_collaborators", return_value=["alice", "bob", "carol"]
+        ):
             with patch("pickaroo.get_requested_reviewers", return_value=[]):
                 with patch("pickaroo.get_pr_reviews", return_value=["alice", "bob"]):
                     with patch("pickaroo.request_reviewers") as mock_request:
@@ -1043,13 +1096,18 @@ def test_cmd_select_reviewers_reviewed_not_in_candidate_pool(tmp_path):
 
 def test_cmd_select_reviewers_picks_only_missing_slots(tmp_path):
     """When 1 of 2 slots is filled, picks exactly 1 more."""
-    github_output, env = _select_reviewers_env(tmp_path, {
-        "GH_INCLUDE_USERS": "alice bob carol",
-        "GH_NUMBER_OF_REVIEWERS": "2",
-    })
+    github_output, env = _select_reviewers_env(
+        tmp_path,
+        {
+            "GH_INCLUDE_USERS": "alice bob carol",
+            "GH_NUMBER_OF_REVIEWERS": "2",
+        },
+    )
 
     with patch.dict("os.environ", env, clear=False):
-        with patch("pickaroo.get_collaborators", return_value=["alice", "bob", "carol"]):
+        with patch(
+            "pickaroo.get_collaborators", return_value=["alice", "bob", "carol"]
+        ):
             with patch("pickaroo.get_requested_reviewers", return_value=["alice"]):
                 with patch("pickaroo.get_pr_reviews", return_value=[]):
                     with patch("pickaroo.request_reviewers") as mock_request:
@@ -1061,16 +1119,23 @@ def test_cmd_select_reviewers_picks_only_missing_slots(tmp_path):
     assert picked[0] in {"bob", "carol"}
 
 
-def test_cmd_select_reviewers_falls_back_to_repicks_when_reviewers_zero(tmp_path, capsys):
+def test_cmd_select_reviewers_falls_back_to_repicks_when_reviewers_zero(
+    tmp_path, capsys
+):
     """number_of_reviewers=0 falls back to number_of_repicks with a deprecation warning."""
-    github_output, env = _select_reviewers_env(tmp_path, {
-        "GH_INCLUDE_USERS": "alice bob carol",
-        "GH_NUMBER_OF_REVIEWERS": "0",
-        "GH_NUMBER_OF_REPICKS": "1",
-    })
+    github_output, env = _select_reviewers_env(
+        tmp_path,
+        {
+            "GH_INCLUDE_USERS": "alice bob carol",
+            "GH_NUMBER_OF_REVIEWERS": "0",
+            "GH_NUMBER_OF_REPICKS": "1",
+        },
+    )
 
     with patch.dict("os.environ", env, clear=False):
-        with patch("pickaroo.get_collaborators", return_value=["alice", "bob", "carol"]):
+        with patch(
+            "pickaroo.get_collaborators", return_value=["alice", "bob", "carol"]
+        ):
             with patch("pickaroo.get_requested_reviewers", return_value=[]):
                 with patch("pickaroo.get_pr_reviews", return_value=[]):
                     with patch("pickaroo.request_reviewers") as mock_request:
@@ -1085,10 +1150,13 @@ def test_cmd_select_reviewers_falls_back_to_repicks_when_reviewers_zero(tmp_path
 
 def test_cmd_select_reviewers_exits_1_when_both_zero(tmp_path):
     """Both number_of_reviewers and number_of_repicks <= 0 → exit 1."""
-    github_output, env = _select_reviewers_env(tmp_path, {
-        "GH_NUMBER_OF_REVIEWERS": "0",
-        "GH_NUMBER_OF_REPICKS": "0",
-    })
+    github_output, env = _select_reviewers_env(
+        tmp_path,
+        {
+            "GH_NUMBER_OF_REVIEWERS": "0",
+            "GH_NUMBER_OF_REPICKS": "0",
+        },
+    )
 
     with patch.dict("os.environ", env, clear=False):
         with pytest.raises(SystemExit) as exc_info:
@@ -1099,14 +1167,19 @@ def test_cmd_select_reviewers_exits_1_when_both_zero(tmp_path):
 
 def test_cmd_select_reviewers_previously_picked_excluded(tmp_path):
     """previously_picked passed in GH_EXCLUDE_USERS prevents repicking."""
-    github_output, env = _select_reviewers_env(tmp_path, {
-        "GH_INCLUDE_USERS": "alice bob carol",
-        "GH_EXCLUDE_USERS": "alice",  # alice was previously picked
-        "GH_NUMBER_OF_REVIEWERS": "1",
-    })
+    github_output, env = _select_reviewers_env(
+        tmp_path,
+        {
+            "GH_INCLUDE_USERS": "alice bob carol",
+            "GH_EXCLUDE_USERS": "alice",  # alice was previously picked
+            "GH_NUMBER_OF_REVIEWERS": "1",
+        },
+    )
 
     with patch.dict("os.environ", env, clear=False):
-        with patch("pickaroo.get_collaborators", return_value=["alice", "bob", "carol"]):
+        with patch(
+            "pickaroo.get_collaborators", return_value=["alice", "bob", "carol"]
+        ):
             with patch("pickaroo.get_requested_reviewers", return_value=[]):
                 with patch("pickaroo.get_pr_reviews", return_value=[]):
                     with patch("pickaroo.request_reviewers") as mock_request:
@@ -1118,11 +1191,14 @@ def test_cmd_select_reviewers_previously_picked_excluded(tmp_path):
 
 def test_cmd_select_reviewers_outputs_empty_when_no_candidates(tmp_path):
     """When candidate pool is empty after filtering, writes reviewers= and all_reviewers= and exits cleanly."""
-    github_output, env = _select_reviewers_env(tmp_path, {
-        "GH_INCLUDE_USERS": "alice",
-        "GH_EXCLUDE_USERS": "alice",
-        "GH_NUMBER_OF_REVIEWERS": "1",
-    })
+    github_output, env = _select_reviewers_env(
+        tmp_path,
+        {
+            "GH_INCLUDE_USERS": "alice",
+            "GH_EXCLUDE_USERS": "alice",
+            "GH_NUMBER_OF_REVIEWERS": "1",
+        },
+    )
 
     with patch.dict("os.environ", env, clear=False):
         with patch("pickaroo.get_collaborators", return_value=["alice"]):
