@@ -14,9 +14,8 @@ jobs:
     secrets: inherit
     with:
       include_users: "timwright12 jviall aloverso"
-      number_of_reviewers: 1
-      number_of_repicks: 0 # don't repick
       channel_id: C03C7NHK9B4 # engineering-all
+      extras: false # 1 of these is always enough
   request-initiative-reviewers:
     if: ${{ github.event.label.name == 'pr-review' }}
     needs: request-project-reviewers # avoid a race between jobs
@@ -24,8 +23,7 @@ jobs:
     secrets: inherit
     with:
       include_teams: "innovation-engineering"
-      exclude_users: "dhcole gamorgana"
-      number_of_repicks: 1 # since this isn't the first run, it's a repick
+      exclude_users: "dhcole timwright12 jviall aloverso"
       channel_id: C03C7NHK9B4 # engineering-all
   pr-show:
     if: ${{ github.event.label.name == 'pr-show' }}
@@ -40,7 +38,6 @@ jobs:
     secrets: inherit
     with:
       include_teams: "innovation-engineering"
-      number_of_reviewers: 1
       channel_id: C09Q36G9HMX # sandbox
   test-pr-show:
     if: ${{ github.event.label.name == 'test-pr-show' }}
