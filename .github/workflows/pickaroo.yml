@@ -44,8 +44,7 @@ on:
 jobs:
   pickaroo:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    permissions: {}
     steps:
       - name: Generate GitHub App Token
         id: generate-token
@@ -57,6 +56,8 @@ jobs:
       - uses: actions/checkout@v6
         with:
           repository: newjersey/innovation-shared-actions
+        env:
+          GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
 
       - name: Find existing pickaroo comment
         id: find-comment
@@ -148,8 +149,7 @@ jobs:
     # only remove a label if one was added
     if: ${{ always() && github.event.action == 'labeled' }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
+    permissions: {}
     steps:
       - name: Generate GitHub App Token
         id: generate_token
