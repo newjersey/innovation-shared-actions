@@ -23,7 +23,7 @@ def parse_pickaroo_comment(body: str) -> dict:
     return result
 
 
-def deduplicate_reviewers(previously_picked: str, new_reviewers: str) -> list:
+def deduplicate_reviewers(previously_picked: str, new_reviewers: str) -> list[str]:
     """Merge two space-delimited reviewer strings, deduplicate, preserve insertion order."""
     combined = f"{previously_picked} {new_reviewers}".split()
     return list(dict.fromkeys(item for item in combined if item))
@@ -60,7 +60,7 @@ def build_main_message(
 
 _THREAD_MESSAGE_TEMPLATES = [
     "Hey {mentions}! It's Pickaroo :kangaroo: and I pick-a-you to review this pull request :pray:",
-    "Hi {mentions}, you're up to bat! :baseball_batter:",
+    "Hi {mentions}--you're up to bat! :baseball_batter:",
     "Tag!! {mentions} :index_pointing_at_the_viewer: you've been PICKED.",
     "Congrats {mentions}! You've been volun-told to review this PR. Off you go :nail_care:",
     "Um... hey {mentions}... could you :point_right::point_left: maybe review this? ...no rush! :see_no_evil: ...pls? :homer-disappear:",
@@ -110,7 +110,7 @@ def _next_page(link_header: str) -> str:
     return ""
 
 
-def get_pr_comments(repo: str, pr_number: str, token: str) -> list:
+def get_pr_comments(repo: str, pr_number: str, token: str) -> list[dict]:
     """GET /repos/{repo}/issues/{pr_number}/comments (all pages)"""
     url = f"{_GH_API}/repos/{repo}/issues/{pr_number}/comments"
     params: dict = {"per_page": 100}
@@ -146,7 +146,7 @@ def patch_pr_comment(repo: str, comment_id: str, token: str, body: str) -> dict:
 # ---------------------------------------------------------------------------
 
 
-def get_team_members(org: str, team: str, token: str) -> list:
+def get_team_members(org: str, team: str, token: str) -> list[str]:
     """GET /orgs/{org}/teams/{team}/members — returns list of login strings."""
     url = f"{_GH_API}/orgs/{org}/teams/{team}/members"
     headers = _gh_headers(token)
@@ -161,11 +161,10 @@ def get_team_members(org: str, team: str, token: str) -> list:
     return all_members
 
 
-def get_collaborators(repo: str, token: str) -> list:
-    """GET /repos/{repo}/collaborators — returns list of login strings (paginated).
+def get_collaborators(repo: str, token: str) -> list[str]:
+    """GET /repos/{repo}/collaborators — returns list of login strings.
 
     Uses the default affiliation=all, which includes outside collaborators.
-    This matches the original bash behavior.
     """
     url = f"{_GH_API}/repos/{repo}/collaborators"
     headers = _gh_headers(token)
@@ -180,7 +179,7 @@ def get_collaborators(repo: str, token: str) -> list:
     return all_collaborators
 
 
-def get_requested_reviewers(repo: str, pr_number: str, token: str) -> list:
+def get_requested_reviewers(repo: str, pr_number: str, token: str) -> list[str]:
     """GET /repos/{repo}/pulls/{pr_number}/requested_reviewers — returns list of user login strings."""
     url = f"{_GH_API}/repos/{repo}/pulls/{pr_number}/requested_reviewers"
     response = requests.get(url, headers=_gh_headers(token))
@@ -188,12 +187,8 @@ def get_requested_reviewers(repo: str, pr_number: str, token: str) -> list:
     return [u["login"] for u in response.json().get("users", [])]
 
 
-def get_pr_reviews(repo: str, pr_number: str, token: str) -> list:
-    """GET /repos/{repo}/pulls/{pr_number}/reviews — returns unique reviewer login strings.
-
-    A reviewer may appear multiple times (e.g. requested changes then approved),
-    so results are deduplicated while preserving first-seen order.
-    """
+def get_pr_reviews(repo: str, pr_number: str, token: str) -> list[str]:
+    """GET /repos/{repo}/pulls/{pr_number}/reviews — returns reviewer login strings."""
     url = f"{_GH_API}/repos/{repo}/pulls/{pr_number}/reviews"
     headers = _gh_headers(token)
     all_reviews = []
@@ -204,13 +199,7 @@ def get_pr_reviews(repo: str, pr_number: str, token: str) -> list:
         all_reviews.extend(r["user"]["login"] for r in response.json())
         url = _next_page(response.headers.get("Link", ""))
         params = {}
-    seen: set = set()
-    unique = []
-    for login in all_reviews:
-        if login not in seen:
-            seen.add(login)
-            unique.append(login)
-    return unique
+    return all_reviews
 
 
 def request_reviewers(repo: str, pr_number: str, token: str, reviewers: list) -> dict:
@@ -232,7 +221,7 @@ _OOO_PATTERNS = re.compile(
     r"|\bsick\b|\bill\b|\bleave\b|\baway\b|\btravel"
     r"|:face_with_thermometer:|:face_vomiting:|:sneezing_face:|:nauseated_face:"
     r"|:thermometer:|:mask:|:face_with_medical_mask:|:hospital:"
-    r"|:palm_tree:|:beach_with_umbrella:|:airplane:|:luggage:)",
+    r"|:palm_tree:|:beach_with_umbrella:|:airplane:)",
     re.IGNORECASE,
 )
 _FUTURE_OOO_PATTERNS = re.compile(
@@ -245,7 +234,7 @@ def is_ooo(status_text: str, status_emoji: str) -> bool:
     """Return True if the user appears to be out of office / unavailable.
 
     Future OOO indicators (crystal_ball, upcoming, etc.) are treated as
-    currently available (returns False).
+    currently available.
     """
     combined = f"{status_text} {status_emoji}"
     if _FUTURE_OOO_PATTERNS.search(combined):
@@ -263,11 +252,11 @@ def validate_slack_token(token: str) -> bool:
     return bool(response.json().get("ok", False))
 
 
-def get_slack_status(slack_user_id: str, token: str) -> tuple:
+def get_slack_status(slack_user_id: str, token: str) -> tuple[str, str]:
     """GET https://slack.com/api/users.profile.get — returns (status_text, status_emoji).
 
     On API error (ok=false), profile is absent and this returns ("", ""), which
-    is_ooo treats ("", "") as not OOO (include-on-error behavior).
+    is_ooo treats as _not_ OOO.
     """
     response = requests.get(
         "https://slack.com/api/users.profile.get",
@@ -284,9 +273,8 @@ def get_slack_status(slack_user_id: str, token: str) -> tuple:
 # ---------------------------------------------------------------------------
 
 
-def count_valid_existing(
-    requested: list,
-    reviewed: list,
+def count_existing_reviewers(
+    existing_set: set,
     include_set: set,
     exclude_set: set,
     collaborators_set: set,
@@ -299,10 +287,10 @@ def count_valid_existing(
     status is intentionally not checked here — existing assignments always count.
     Requested and reviewed lists are unioned so a reviewer who did both counts once.
     """
-    all_reviewers = set(requested) | set(reviewed)
+
     return sum(
         1
-        for r in all_reviewers
+        for r in existing_set
         if r in include_set
         and r not in exclude_set
         and r in collaborators_set
@@ -315,41 +303,58 @@ def build_candidate_pool(
     exclude_set: set,
     collaborators_set: set,
     author: str,
-    already_requested: list,
-    already_reviewed: list,
-) -> list:
+    existing_set: set,
+) -> list[str]:
     """Return eligible candidates for new reviewer picks.
 
     Excludes anyone who is currently a requested reviewer or has already
-    submitted a review — they don't need to be requested again.
+    submitted a review.
     """
-    already_set = set(already_requested) | set(already_reviewed)
     return [
         u
         for u in include_set
         if u not in exclude_set
         and u in collaborators_set
         and u != author
-        and u not in already_set
+        and u not in existing_set
     ]
 
 
-def filter_ooo_candidates(
+def filter_by_slack_status(
     candidates: list,
-    gh_slack_mapping: dict,
+    gh_slack_mapping_str: str,
     slack_token: str,
-) -> list:
-    """Remove candidates whose Slack status indicates current unavailability.
+) -> list[str]:
+    """Filter candidates by Slack OOO status, returning only available users.
 
-    Users not present in gh_slack_mapping are always included. On Slack API
-    failure, the user is included with a warning.
+    Skips filtering entirely when mapping or token are absent. Validates the
+    token before making per-user calls and exits with code 1 on failure.
+    Users not in the mapping, or whose Slack status API call fails, are included.
     """
+    if not gh_slack_mapping_str:
+        return candidates
+
+    if not slack_token or not validate_slack_token(slack_token):
+        print("ERROR: Slack token validation failed", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        gh_slack_mapping = json.loads(gh_slack_mapping_str)
+    except json.JSONDecodeError:
+        print("WARNING: GH_SLACK_USER_MAP is not valid JSON — skipping Slack filtering")
+        return candidates
+
+    if not gh_slack_mapping:
+        return candidates
+
+    print("Filtering candidates by Slack status...")
     available = []
     for member in candidates:
         slack_user_id = gh_slack_mapping.get(member)
         if not slack_user_id:
             available.append(member)
             continue
+
         try:
             status_text, status_emoji = get_slack_status(slack_user_id, slack_token)
         except Exception as e:
@@ -358,6 +363,7 @@ def filter_ooo_candidates(
             )
             available.append(member)
             continue
+
         if not is_ooo(status_text, status_emoji):
             available.append(member)
         else:
@@ -383,19 +389,19 @@ def cmd_select_reviewers():
     repo = os.environ["GITHUB_REPOSITORY"]
     pr_number = os.environ["GH_PR_NUMBER"]
     pr_author = os.environ.get("GH_PR_AUTHOR", "")
-    include_teams = os.environ.get("GH_INCLUDE_TEAMS", "").split()
-    include_users = os.environ.get("GH_INCLUDE_USERS", "").split()
-    exclude_teams = os.environ.get("GH_EXCLUDE_TEAMS", "").split()
-    exclude_users = os.environ.get("GH_EXCLUDE_USERS", "").split()
+    include_teams = os.environ.get("INCLUDE_TEAMS", "").split()
+    include_users = os.environ.get("INCLUDE_USERS", "").split()
+    exclude_teams = os.environ.get("EXCLUDE_TEAMS", "").split()
+    exclude_users = os.environ.get("EXCLUDE_USERS", "").split()
     github_output = os.environ["GITHUB_OUTPUT"]
 
     try:
-        number_of_reviewers = int(os.environ.get("GH_NUMBER_OF_REVIEWERS", "0"))
+        number_of_reviewers = int(os.environ.get("NUMBER_OF_REVIEWERS", "0"))
     except ValueError:
         number_of_reviewers = 0
 
     try:
-        number_of_repicks = int(os.environ.get("GH_NUMBER_OF_REPICKS", "0"))
+        number_of_repicks = int(os.environ.get("NUMBER_OF_REPICKS", "0"))
     except ValueError:
         number_of_repicks = 0
 
@@ -438,91 +444,66 @@ def cmd_select_reviewers():
     collaborators_set = set(get_collaborators(repo, token))
 
     print(f"Fetching existing reviewers for PR #{pr_number}")
-    requested = get_requested_reviewers(repo, pr_number, token)
-    print(f"Currently requested reviewers: {requested}")
-    reviewed = get_pr_reviews(repo, pr_number, token)
-    print(f"Already reviewed by: {reviewed}")
+    existing_requested = get_requested_reviewers(repo, pr_number, token)
+    print(f"Currently requested reviewers: {existing_requested}")
+    existing_reviewed = get_pr_reviews(repo, pr_number, token)
+    existing_reviewed = [r for r in existing_reviewed if r != pr_author]
+    print(f"Already reviewed by: {existing_reviewed}")
+    existing_set = set(existing_requested + existing_reviewed)
 
-    valid_existing = count_valid_existing(
-        requested, reviewed, include_set, exclude_set, collaborators_set, pr_author
+    valid_existing = count_existing_reviewers(
+        existing_set,
+        include_set,
+        exclude_set,
+        collaborators_set,
+        pr_author,
     )
     print(f"Valid existing reviewers: {valid_existing} / {n} required")
 
-    # Always pick at least 1: if slots are full, add 1 more for authors who want
-    # extra coverage; if slots are short, fill them all.
-    to_pick = max(1, n - valid_existing)
-
     candidates = build_candidate_pool(
-        include_set, exclude_set, collaborators_set, pr_author, requested, reviewed
+        include_set,
+        exclude_set,
+        collaborators_set,
+        pr_author,
+        existing_set,
+    )
+
+    candidates = filter_by_slack_status(
+        candidates,
+        gh_slack_mapping_str=os.environ.get("GH_SLACK_USER_MAP", ""),
+        slack_token=os.environ.get("SLACK_TOKEN", ""),
     )
 
     if not candidates:
-        print("WARNING: No eligible candidates found after filtering")
+        print("WARNING: No eligible candidates remaining after filtering")
         with open(github_output, "a") as f:
             f.write("picked_reviewers=\n")
-            f.write(f"all_reviewers={' '.join(requested)}\n")
+            f.write(f"all_reviewers={' '.join(existing_set)}\n")
         return
 
-    # Optional Slack OOO filtering
-    gh_slack_mapping_str = os.environ.get("GH_SLACK_USER_MAP", "")
-    slack_token = os.environ.get("SLACK_TOKEN", "")
-    if gh_slack_mapping_str and slack_token:
-        try:
-            gh_slack_mapping = json.loads(gh_slack_mapping_str)
-        except json.JSONDecodeError:
-            print(
-                "WARNING: GH_SLACK_USER_MAP is not valid JSON — skipping Slack filtering"
-            )
-            gh_slack_mapping = {}
-        if gh_slack_mapping:
-            print("Validating Slack token...")
-            if not validate_slack_token(slack_token):
-                print("ERROR: Slack token validation failed", file=sys.stderr)
-                sys.exit(1)
-            print("Filtering candidates by Slack status...")
-            candidates = filter_ooo_candidates(
-                candidates, gh_slack_mapping, slack_token
-            )
-            if not candidates:
-                print("WARNING: All candidates filtered out by Slack status")
-                with open(github_output, "a") as f:
-                    f.write("picked_reviewers=\n")
-                    f.write(f"all_reviewers={' '.join(requested)}\n")
-                return
+    # Pick enough to reach n; if slots are already full and extras is enabled,
+    # pick 1 additional reviewer. extras=False suppresses the extra pick.
+    extras_enabled = os.environ.get("EXTRAS", "true").lower() != "false"
+    extras = 1 if extras_enabled else 0
+    pick_count = max(extras, n - valid_existing)
+    if pick_count == 0:
+        print("Reviewer slots already satisfied and extras disabled — no new picks")
+        with open(github_output, "a") as f:
+            f.write("picked_reviewers=\n")
+            f.write(f"all_reviewers={' '.join(sorted(existing_set))}\n")
+        return
 
-    pick_count = min(to_pick, len(candidates))
-    picked = random.sample(candidates, pick_count)
+    pick_count = min(pick_count, len(candidates))
+    picked = sorted(random.sample(candidates, pick_count))
     print(f"Selected reviewers: {picked}")
 
     request_reviewers(repo, pr_number, token, picked)
     print(f"Successfully requested reviewers: {picked}")
 
-    all_reviewers = requested + picked
+    all_reviewers = sorted(list(existing_set) + picked)
     with open(github_output, "a") as f:
         f.write(f"picked_reviewers={' '.join(picked)}\n")
         f.write(f"all_reviewers={' '.join(all_reviewers)}\n")
-
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
-
-def main():
-    commands = {
-        "find-comment": cmd_find_comment,
-        "build-messages": cmd_build_messages,
-        "post-comment": cmd_post_comment,
-        "select-reviewers": cmd_select_reviewers,
-    }
-    command = sys.argv[1] if len(sys.argv) > 1 else ""
-    if command not in commands:
-        print(
-            f"Unknown command: {command!r}. Available: {', '.join(commands)}",
-            file=sys.stderr,
-        )
-        sys.exit(1)
-    commands[command]()
 
 
 def cmd_find_comment():
@@ -558,6 +539,8 @@ def cmd_build_messages():
     github_env = os.environ["GITHUB_ENV"]
     show = os.environ.get("SHOW", "false").lower() == "true"
 
+    number_of_reviewers = int(os.environ.get("NUMBER_OF_REVIEWERS", "0"))
+    extras_enabled = os.environ.get("EXTRAS", "true").lower() != "false"
     picked_reviewer_mentions = os.environ.get("PICKED_REVIEWER_MENTIONS", "")
     all_reviewer_mentions = os.environ.get("ALL_REVIEWER_MENTIONS", "")
     author_mention = os.environ.get("AUTHOR_MENTION", "")
@@ -579,7 +562,8 @@ def cmd_build_messages():
         all_reviewer_mentions=all_reviewer_mentions,
     )
 
-    if show:
+    num_existing_reviewers = len(all_reviewer_mentions.split(","))
+    if show or (number_of_reviewers == num_existing_reviewers and not extras_enabled):
         thread_message = ""
     else:
         thread_message = build_thread_message(
@@ -614,6 +598,28 @@ def cmd_post_comment():
         print(f"Posting new comment to PR #{pr_number}")
         post_pr_comment(repo, pr_number, token, body)
         print("Successfully posted PR comment")
+
+
+# ---------------------------------------------------------------------------
+# Entry point
+# ---------------------------------------------------------------------------
+
+
+def main():
+    commands = {
+        "find-comment": cmd_find_comment,
+        "build-messages": cmd_build_messages,
+        "post-comment": cmd_post_comment,
+        "select-reviewers": cmd_select_reviewers,
+    }
+    command = sys.argv[1] if len(sys.argv) > 1 else ""
+    if command not in commands:
+        print(
+            f"Unknown command: {command!r}. Available: {', '.join(commands)}",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    commands[command]()
 
 
 if __name__ == "__main__":

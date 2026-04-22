@@ -20,13 +20,17 @@ on:
         type: "string"
         required: false
       number_of_reviewers:
-        required: true
+        default: 1
         type: number
         description: The number of reviewers to select
+      extras:
+        default: true
+        type: boolean
+        description: When false, if the number_of_reviewers is already satisfied, Pickaroo will not request an extra reviewer.
       number_of_repicks:
         default: 1
         type: number
-        description: "Deprecated: use number_of_reviewers instead. Number of reviewers to select when number_of_reviewers is not set."
+        description: "Deprecated: use number_of_reviewers instead."
       channel_id:
         required: true
         description: The Slack Channel ID to notify
@@ -73,12 +77,13 @@ jobs:
         run: python .github/scripts/pickaroo.py select-reviewers
         env:
           GITHUB_TOKEN: ${{ steps.generate-token.outputs.token }}
-          GH_INCLUDE_TEAMS: ${{ inputs.include_teams }}
-          GH_INCLUDE_USERS: ${{ inputs.include_users }}
-          GH_EXCLUDE_TEAMS: ${{ inputs.exclude_teams }}
-          GH_EXCLUDE_USERS: ${{ inputs.exclude_users }} ${{ steps.find-comment.outputs.previously-picked }}
-          GH_NUMBER_OF_REVIEWERS: ${{ inputs.number_of_reviewers }}
-          GH_NUMBER_OF_REPICKS: ${{ inputs.number_of_repicks }}
+          INCLUDE_TEAMS: ${{ inputs.include_teams }}
+          INCLUDE_USERS: ${{ inputs.include_users }}
+          EXCLUDE_TEAMS: ${{ inputs.exclude_teams }}
+          EXCLUDE_USERS: ${{ inputs.exclude_users }} ${{ steps.find-comment.outputs.previously-picked }}
+          NUMBER_OF_REVIEWERS: ${{ inputs.number_of_reviewers }}
+          NUMBER_OF_REPICKS: ${{ inputs.number_of_repicks }}
+          EXTRAS: ${{ inputs.extras }}
           GH_PR_NUMBER: ${{ github.event.pull_request.number }}
           GH_PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           GH_SLACK_USER_MAP: ${{ vars.GH_SLACK_USER_MAP }}
@@ -110,6 +115,8 @@ jobs:
       - name: Build Slack messages
         run: python .github/scripts/pickaroo.py build-messages
         env:
+          NUMBER_OF_REVIEWERS: ${{ inputs.number_of_reviewers }}
+          EXTRAS: ${{ inputs.extras }}
           PICKED_REVIEWERS: ${{ steps.request-reviewers.outputs.picked_reviewers }}
           PICKED_REVIEWER_MENTIONS: ${{ steps.lookup-new-reviewers.outputs.formatted_string }}
           ALL_REVIEWER_MENTIONS: ${{ steps.lookup-current-reviewers.outputs.formatted_string }}
