@@ -16,6 +16,7 @@ jobs:
       include_users: "timwright12 jviall aloverso"
       channel_id: C03C7NHK9B4 # engineering-all
       extras: false # 1 of these is always enough
+      slack_as_author: true
   request-initiative-reviewers:
     if: ${{ github.event.label.name == 'pr-review' }}
     needs: request-project-reviewers # avoid a race between jobs
@@ -25,6 +26,7 @@ jobs:
       include_teams: "innovation-engineering"
       exclude_users: "dhcole timwright12 jviall aloverso"
       channel_id: C03C7NHK9B4 # engineering-all
+      slack_as_author: true
   pr-show:
     if: ${{ github.event.label.name == 'pr-show' }}
     uses: ./.github/workflows/pickaroo.yml
@@ -32,6 +34,7 @@ jobs:
     with:
       show: true
       channel_id: C03C7NHK9B4 # engineering-all
+      slack_as_author: true
   test-pr-review:
     if: ${{ github.event.label.name == 'test-pr-review' }}
     uses: ./.github/workflows/pickaroo.yml
@@ -39,6 +42,7 @@ jobs:
     with:
       include_teams: "innovation-engineering"
       channel_id: C09Q36G9HMX # sandbox
+      slack_as_author: true
   test-pr-show:
     if: ${{ github.event.label.name == 'test-pr-show' }}
     uses: ./.github/workflows/pickaroo.yml
@@ -46,3 +50,4 @@ jobs:
     with:
       show: true
       channel_id: C09Q36G9HMX # sandbox
+      slack_as_author: true

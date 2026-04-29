@@ -13,7 +13,7 @@ inputs:
 
 outputs:
   github_slack_mapping:
-    description: "JSON object mapping GitHub usernames to Slack user IDs"
+    description: "JSON object mapping GitHub usernames to objects with 'id' (Slack user ID), 'username' (Slack display name), and 'avatar_url' (512px Slack profile picture)"
     value: ${{ steps.build-mapping.outputs.github-slack-mapping }}
 
 runs:
@@ -103,7 +103,13 @@ runs:
             
             if [ -n "$GITHUB_USERNAME" ] && [ "$GITHUB_USERNAME" != "null" ]; then
               echo "  Found GitHub username for $DISPLAY_NAME ($user_id): $GITHUB_USERNAME"
-              GITHUB_SLACK_MAP=$(echo "$GITHUB_SLACK_MAP" | jq --arg github_user "$GITHUB_USERNAME" --arg slack_id "$user_id" '. + {($github_user): $slack_id}')
+              AVATAR_URL=$(echo "$PROFILE_RESPONSE" | jq -r '.profile.image_512 // ""')
+              GITHUB_SLACK_MAP=$(echo "$GITHUB_SLACK_MAP" | jq \
+                --arg github_user "$GITHUB_USERNAME" \
+                --arg slack_id "$user_id" \
+                --arg slack_username "$DISPLAY_NAME" \
+                --arg avatar_url "$AVATAR_URL" \
+                '. + {($github_user): {"id": $slack_id, "username": $slack_username, "avatar_url": $avatar_url}}')
             fi
           fi
         done <<< "$ACTIVE_USER_IDS"

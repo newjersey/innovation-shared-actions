@@ -16,6 +16,24 @@ inputs:
   token:
     description: "Slack OAuth token"
     required: false
+  username:
+    description: "Display name to post the message as. NOTE: only impersonate a person when they are triggering the message--it should not be unexpected."
+    required: false
+  avatar_url:
+    description: "Avatar URL to use for the message. NOTE: only impersonate a person when they are triggering the message--it should not be unexpected."
+    required: false
+  avatar_emoji:
+    description: "Slack emoji to use as the threaded message's avatar (e.g. ':kangaroo:'). Only used when avatar_url is not present."
+    required: false
+  thread_username:
+    description: "Display name to post the threaded message as. NOTE: only impersonate a person when they are triggering the message--it should not be unexpected."
+    required: false
+  thread_avatar_url:
+    description: "Avatar URL to use for the threaded message. NOTE: only impersonate a person when they are triggering the message--it should not be unexpected."
+    required: false
+  thread_avatar_emoji:
+    description: "Slack emoji to use as the threaded message's avatar (e.g. ':kangaroo:'). Only used when avatar_url is not present."
+    required: false
 
 outputs:
   message_ts:
@@ -37,12 +55,25 @@ runs:
         echo "MESSAGE_TS=${MESSAGE_TS:-$INPUT_MESSAGE_TS}" >> "$GITHUB_ENV"
         echo "THREAD_MESSAGE=${THREAD_MESSAGE:-$INPUT_THREAD_MESSAGE}" >> "$GITHUB_ENV"
         echo "TOKEN=${TOKEN:-$INPUT_TOKEN}" >> "$GITHUB_ENV"
+        echo "USERNAME=${USERNAME:-$INPUT_USERNAME}" >> "$GITHUB_ENV"
+        echo "AVATAR_URL=${AVATAR_URL:-$INPUT_AVATAR_URL}" >> "$GITHUB_ENV"
+        echo "AVATAR_EMOJI=${AVATAR_EMOJI:-$INPUT_AVATAR_EMOJI}" >> "$GITHUB_ENV"
+        echo "THREAD_USERNAME=${THREAD_USERNAME:-$INPUT_THREAD_USERNAME}" >> "$GITHUB_ENV"
+        echo "THREAD_AVATAR_URL=${THREAD_AVATAR_URL:-$INPUT_THREAD_AVATAR_URL}" >> "$GITHUB_ENV"
+        echo "THREAD_AVATAR_EMOJI=${THREAD_AVATAR_EMOJI:-$INPUT_THREAD_AVATAR_EMOJI}" >> "$GITHUB_ENV"
+
       env:
         INPUT_CHANNEL_ID: ${{ inputs.channel_id }}
         INPUT_MESSAGE: ${{ inputs.message }}
         INPUT_MESSAGE_TS: ${{ inputs.message_ts }}
         INPUT_THREAD_MESSAGE: ${{ inputs.thread_message }}
         INPUT_TOKEN: ${{ inputs.token }}
+        INPUT_USERNAME: ${{ inputs.username }}
+        INPUT_AVATAR_URL: ${{ inputs.avatar_url }}
+        INPUT_AVATAR_EMOJI: ${{ inputs.avatar_emoji }}
+        INPUT_THREAD_USERNAME: ${{ inputs.thread_username }}
+        INPUT_THREAD_AVATAR_URL: ${{ inputs.thread_avatar_url }}
+        INPUT_THREAD_AVATAR_EMOJI: ${{ inputs.thread_avatar_emoji }}
     - name: Validate inputs
       shell: bash
       run: |
@@ -113,11 +144,22 @@ runs:
         # Convert literal \n to actual newlines so jq JSON-encodes them as \n for Slack
         MESSAGE="${MESSAGE//\\n/$'\n'}"
 
+        PAYLOAD=$(jq -n \
+          --arg channel "$CHANNEL_ID" \
+          --arg markdown_text "$MESSAGE" \
+          --arg username "$USERNAME" \
+          --arg icon_url "$AVATAR_URL" \
+          --arg icon_emoji "$AVATAR_EMOJI" \
+          '{channel: $channel, markdown_text: $markdown_text}
+           | if $username != "" then . + {username: $username} else . end
+           | if $icon_url != "" then . + {icon_url: $icon_url}
+             elif $icon_emoji != "" then . + {icon_emoji: $icon_emoji}
+             else . end')
+
         RESPONSE=$(curl -s -X POST "https://slack.com/api/chat.postMessage" \
           -H "Authorization: Bearer $TOKEN" \
           -H "Content-Type: application/json" \
-          -d "$(jq -n --arg channel "$CHANNEL_ID" --arg type "mrkdwn" --arg markdown_text "$MESSAGE" \
-            '{channel: $channel, markdown_text: $markdown_text}')")
+          -d "$PAYLOAD")
 
         if ! echo "$RESPONSE" | jq -e '.ok' > /dev/null; then
           SLACK_ERROR=$(echo "$RESPONSE" | jq -r '.error // "unknown_error"')
@@ -137,11 +179,23 @@ runs:
         # Convert literal \n to actual newlines so jq JSON-encodes them correctly
         MESSAGE="${MESSAGE//\\n/$'\n'}"
 
+        PAYLOAD=$(jq -n \
+          --arg channel "$CHANNEL_ID" \
+          --arg ts "$MESSAGE_TS" \
+          --arg markdown_text "$MESSAGE" \
+          --arg username "$USERNAME" \
+          --arg icon_url "$AVATAR_URL" \
+          --arg icon_emoji "$AVATAR_EMOJI" \
+          '{channel: $channel, ts: $ts, markdown_text: $markdown_text}
+           | if $username != "" then . + {username: $username} else . end
+           | if $icon_url != "" then . + {icon_url: $icon_url}
+             elif $icon_emoji != "" then . + {icon_emoji: $icon_emoji}
+             else . end')
+
         RESPONSE=$(curl -s -X POST "https://slack.com/api/chat.update" \
           -H "Authorization: Bearer $TOKEN" \
           -H "Content-Type: application/json" \
-          -d "$(jq -n --arg channel "$CHANNEL_ID" --arg ts "$MESSAGE_TS" --arg markdown_text "$MESSAGE" \
-            '{channel: $channel, ts: $ts, markdown_text: $markdown_text}')")
+          -d "$PAYLOAD")
 
         if ! echo "$RESPONSE" | jq -e '.ok' > /dev/null; then
           SLACK_ERROR=$(echo "$RESPONSE" | jq -r '.error // "unknown_error"')
@@ -162,11 +216,23 @@ runs:
         # Convert literal \n to actual newlines so jq JSON-encodes them as \n for Slack
         THREAD_MESSAGE="${THREAD_MESSAGE//\\n/$'\n'}"
 
+        PAYLOAD=$(jq -n \
+          --arg channel "$CHANNEL_ID" \
+          --arg thread_ts "$THREAD_TS" \
+          --arg markdown_text "$THREAD_MESSAGE" \
+          --arg username "$THREAD_USERNAME" \
+          --arg icon_url "$THREAD_AVATAR_URL" \
+          --arg icon_emoji "$THREAD_AVATAR_EMOJI" \
+          '{channel: $channel, thread_ts: $thread_ts, markdown_text: $markdown_text}
+           | if $username != "" then . + {username: $username} else . end
+           | if $icon_url != "" then . + {icon_url: $icon_url}
+             elif $icon_emoji != "" then . + {icon_emoji: $icon_emoji}
+             else . end')
+
         RESPONSE=$(curl -s -X POST "https://slack.com/api/chat.postMessage" \
           -H "Authorization: Bearer $TOKEN" \
           -H "Content-Type: application/json" \
-          -d "$(jq -n --arg channel "$CHANNEL_ID" --arg thread_ts "$THREAD_TS" --arg markdown_text "$THREAD_MESSAGE" \
-            '{channel: $channel, thread_ts: $thread_ts, markdown_text: $markdown_text}')")
+          -d "$PAYLOAD")
 
         if ! echo "$RESPONSE" | jq -e '.ok' > /dev/null; then
           SLACK_ERROR=$(echo "$RESPONSE" | jq -r '.error // "unknown_error"')
