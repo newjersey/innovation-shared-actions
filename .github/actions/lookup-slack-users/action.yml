@@ -12,6 +12,12 @@ outputs:
   slack_users:
     description: "JSON array of Slack user IDs that were matched"
     value: ${{ steps.build-mentions.outputs.slack-users }}
+  slack_usernames:
+    description: "JSON array of Slack display names for matched users"
+    value: ${{ steps.build-mentions.outputs.slack-usernames }}
+  avatar_urls:
+    description: "JSON array of Slack avatar URLs for matched users"
+    value: ${{ steps.build-mentions.outputs.avatar-urls }}
   github_users:
     description: "JSON array of GitHub usernames that couldn't be matched to Slack users"
     value: ${{ steps.build-mentions.outputs.github-users }}
@@ -27,6 +33,8 @@ runs:
       shell: bash
       run: |
         echo "slack-users=[]" >> $GITHUB_OUTPUT
+        echo "slack-usernames=[]" >> $GITHUB_OUTPUT
+        echo "avatar-urls=[]" >> $GITHUB_OUTPUT
         echo "github-users=[]" >> $GITHUB_OUTPUT
         echo "formatted-string=" >> $GITHUB_OUTPUT
 
@@ -55,14 +63,20 @@ runs:
         IFS=' ' read -ra USERNAME_ARRAY <<< "$GITHUB_USERNAMES"
 
         SLACK_USERS="[]"
+        SLACK_USERNAMES="[]"
+        AVATAR_URLS="[]"
         GITHUB_USERS="[]"
 
         for github_username in "${USERNAME_ARRAY[@]}"; do
           if [ -n "$github_username" ]; then
-            SLACK_USER_ID=$(echo "$GITHUB_SLACK_MAP" | jq -r --arg github_user "$github_username" '.[$github_user] // ""')
-            
-            if [ -n "$SLACK_USER_ID" ] && [ "$SLACK_USER_ID" != "null" ] && [ "$SLACK_USER_ID" != "" ]; then
-              SLACK_USERS=$(echo "$SLACK_USERS" | jq --arg user_id "$SLACK_USER_ID" '. + [$user_id]')
+            SLACK_USER_ID=$(echo "$GITHUB_SLACK_MAP" | jq -r --arg u "$github_username" '.[$u].id // ""')
+            SLACK_USERNAME=$(echo "$GITHUB_SLACK_MAP" | jq -r --arg u "$github_username" '.[$u].username // ""')
+            AVATAR_URL=$(echo "$GITHUB_SLACK_MAP" | jq -r --arg u "$github_username" '.[$u].avatar_url // ""')
+
+            if [ -n "$SLACK_USER_ID" ] && [ "$SLACK_USER_ID" != "null" ]; then
+              SLACK_USERS=$(echo "$SLACK_USERS" | jq --arg id "$SLACK_USER_ID" '. + [$id]')
+              SLACK_USERNAMES=$(echo "$SLACK_USERNAMES" | jq --arg name "$SLACK_USERNAME" '. + [$name]')
+              AVATAR_URLS=$(echo "$AVATAR_URLS" | jq --arg url "$AVATAR_URL" '. + [$url]')
             else
               GITHUB_USERS=$(echo "$GITHUB_USERS" | jq --arg username "$github_username" '. + [$username]')
             fi
@@ -75,5 +89,7 @@ runs:
         ')
 
         echo "slack-users=$(echo "$SLACK_USERS" | jq -c .)" >> $GITHUB_OUTPUT
+        echo "slack-usernames=$(echo "$SLACK_USERNAMES" | jq -c .)" >> $GITHUB_OUTPUT
+        echo "avatar-urls=$(echo "$AVATAR_URLS" | jq -c .)" >> $GITHUB_OUTPUT
         echo "github-users=$(echo "$GITHUB_USERS" | jq -c .)" >> $GITHUB_OUTPUT
         echo "formatted-string=$FORMATTED_STRING" >> $GITHUB_OUTPUT

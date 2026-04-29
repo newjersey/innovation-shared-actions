@@ -350,7 +350,8 @@ def filter_by_slack_status(
     print("Filtering candidates by Slack status...")
     available = []
     for member in candidates:
-        slack_user_id = gh_slack_mapping.get(member)
+        entry = gh_slack_mapping.get(member)
+        slack_user_id = entry.get("id") if isinstance(entry, dict) else entry
         if not slack_user_id:
             available.append(member)
             continue

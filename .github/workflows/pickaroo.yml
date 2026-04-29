@@ -35,6 +35,10 @@ on:
         required: true
         description: The Slack Channel ID to notify
         type: string
+      slack_as_author:
+        default: false
+        description: Tell's the bot to impersonate the PR Author's Slack user when notifying.
+        type: boolean
       show:
         default: false
         type: boolean
@@ -130,9 +134,16 @@ jobs:
         id: send-slack-message
         uses: ./.github/actions/slack-message
         env:
+          # MESSAGE and THREAD_MESSAGE are already set by the build-messages python script
           CHANNEL_ID: ${{ inputs.channel_id }}
           MESSAGE_TS: ${{ steps.find-comment.outputs.message-ts }}
           TOKEN: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          USERNAME: ${{ inputs.slack_as_author && fromJson(steps.lookup-pr-author.outputs.slack_usernames)[0] || 'Pickaroo' }}
+          AVATAR_URL: ${{ inputs.slack_as_author && fromJson(steps.lookup-pr-author.outputs.avatar_urls)[0] || '' }}
+          AVATAR_EMOJI: ":kangaroo:"
+          # always message as Pickaroo in thread
+          THREAD_USERNAME: "Pickaroo"
+          THREAD_AVATAR_EMOJI: ":kangaroo:"
 
       - name: Post PR comment
         run: python .github/scripts/pickaroo.py post-comment
