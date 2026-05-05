@@ -6,12 +6,43 @@ on:
   workflow_call:
     inputs:
       channel_id:
+        description: "Slack channel ID"
         required: true
         type: string
       message:
-        required: true
+        description: "Main message to send"
+        required: false
+        type: string
+      message_ts:
+        description: "Timestamp of existing message to update and/or reply to in thread"
+        required: false
         type: string
       thread_message:
+        description: "Optional thread reply message"
+        required: false
+        type: string
+      username:
+        description: "Display name to post the message as. NOTE: only impersonate a person when they are triggering the message--it should not be unexpected."
+        required: false
+        type: string
+      avatar_url:
+        description: "Avatar URL to use for the message. NOTE: only impersonate a person when they are triggering the message--it should not be unexpected."
+        required: false
+        type: string
+      avatar_emoji:
+        description: "Slack emoji to use as the message's avatar (e.g. ':kangaroo:'). Ignored when avatar_url is provided."
+        required: false
+        type: string
+      thread_username:
+        description: "Display name to post the threaded message as. NOTE: only impersonate a person when they are triggering the message--it should not be unexpected."
+        required: false
+        type: string
+      thread_avatar_url:
+        description: "Avatar URL to use for the threaded message. NOTE: only impersonate a person when they are triggering the message--it should not be unexpected."
+        required: false
+        type: string
+      thread_avatar_emoji:
+        description: "Slack emoji to use as the threaded message's avatar (e.g. ':kangaroo:'). Ignored when thread_avatar_url is provided."
         required: false
         type: string
     secrets:
@@ -27,8 +58,15 @@ jobs:
           repository: newjersey/innovation-shared-actions
       - name: Send Slack message
         uses: ./.github/actions/slack-message
-        with:
-          channel_id: ${{ inputs.channel_id }}
-          message: ${{ inputs.message }}
-          thread_message: ${{ inputs.thread_message }}
-          token: ${{ secrets.SLACK_OAUTH_TOKEN }}
+        env:
+          CHANNEL_ID: ${{ inputs.channel_id }}
+          MESSAGE: ${{ inputs.message }}
+          MESSAGE_TS: ${{ inputs.message_ts }}
+          THREAD_MESSAGE: ${{ inputs.thread_message }}
+          TOKEN: ${{ secrets.SLACK_OAUTH_TOKEN }}
+          USERNAME: ${{ inputs.username }}
+          AVATAR_URL: ${{ inputs.avatar_url }}
+          AVATAR_EMOJI: ${{ inputs.avatar_emoji }}
+          THREAD_USERNAME: ${{ inputs.thread_username }}
+          THREAD_AVATAR_URL: ${{ inputs.thread_avatar_url }}
+          THREAD_AVATAR_EMOJI: ${{ inputs.thread_avatar_emoji }}
