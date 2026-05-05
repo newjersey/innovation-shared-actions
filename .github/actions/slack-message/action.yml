@@ -1,6 +1,7 @@
 name: "Slack Message"
 description: "Send a message to Slack with optional thread reply"
 inputs:
+  # All inputs can instead be provided as CAPITAL_CASE environment variables instead
   channel_id:
     description: "Slack channel ID"
     required: false
@@ -8,7 +9,7 @@ inputs:
     description: "Main message to send"
     required: false
   message_ts:
-    description: "Timestamp of existing message to reply to in thread (if provided, main message will be skipped)"
+    description: "Timestamp of existing message to update and/or reply to in thread"
     required: false
   thread_message:
     description: "Optional thread reply message"
@@ -23,7 +24,7 @@ inputs:
     description: "Avatar URL to use for the message. NOTE: only impersonate a person when they are triggering the message--it should not be unexpected."
     required: false
   avatar_emoji:
-    description: "Slack emoji to use as the threaded message's avatar (e.g. ':kangaroo:'). Only used when avatar_url is not present."
+    description: "Slack emoji to use as the threaded message's avatar (e.g. ':kangaroo:'). Ignored when avatar_url is provided."
     required: false
   thread_username:
     description: "Display name to post the threaded message as. NOTE: only impersonate a person when they are triggering the message--it should not be unexpected."
@@ -32,7 +33,7 @@ inputs:
     description: "Avatar URL to use for the threaded message. NOTE: only impersonate a person when they are triggering the message--it should not be unexpected."
     required: false
   thread_avatar_emoji:
-    description: "Slack emoji to use as the threaded message's avatar (e.g. ':kangaroo:'). Only used when avatar_url is not present."
+    description: "Slack emoji to use as the threaded message's avatar (e.g. ':kangaroo:'). Ignored when thread_avatar_url is provided."
     required: false
 
 outputs:
