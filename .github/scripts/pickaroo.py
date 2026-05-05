@@ -50,11 +50,11 @@ def build_main_message(
     """Build the main Slack message string."""
     message = (
         f"[ <{pr_url}|PR {pr_type}> ] {repo_name} - #{pr_number} by {author_mention}:"
-        r"\n\n"
+        r"\n"
         f"**{pr_title}**"
     )
     if all_reviewer_mentions:
-        message += r"\n\n" + f"Reviewers: {all_reviewer_mentions}"
+        message += r"\n" + f"Reviewers: {all_reviewer_mentions}"
     return message
 
 
