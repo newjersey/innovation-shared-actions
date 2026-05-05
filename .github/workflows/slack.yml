@@ -45,6 +45,10 @@ on:
         description: "Slack emoji to use as the threaded message's avatar (e.g. ':kangaroo:'). Ignored when thread_avatar_url is provided."
         required: false
         type: string
+    outputs:
+      message_ts:
+        description: "Timestamp of the main message"
+        value: ${{ jobs.send-slack-message.outputs.message_ts }}
     secrets:
       SLACK_OAUTH_TOKEN:
         required: false
@@ -52,11 +56,14 @@ on:
 jobs:
   send-slack-message:
     runs-on: ubuntu-latest
+    outputs:
+      message_ts: ${{ steps.slack.outputs.message_ts }}
     steps:
       - uses: actions/checkout@v6
         with:
           repository: newjersey/innovation-shared-actions
       - name: Send Slack message
+        id: slack
         uses: ./.github/actions/slack-message
         env:
           CHANNEL_ID: ${{ inputs.channel_id }}
