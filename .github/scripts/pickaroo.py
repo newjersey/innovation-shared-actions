@@ -530,8 +530,6 @@ def cmd_build_messages():
     github_env = os.environ["GITHUB_ENV"]
     show = os.environ.get("SHOW", "false").lower() == "true"
 
-    number_of_reviewers = int(os.environ.get("NUMBER_OF_REVIEWERS", "0"))
-    extras_enabled = os.environ.get("EXTRAS", "true").lower() != "false"
     picked_reviewer_mentions = os.environ.get("PICKED_REVIEWER_MENTIONS", "")
     all_reviewer_mentions = os.environ.get("ALL_REVIEWER_MENTIONS", "")
     author_mention = os.environ.get("AUTHOR_MENTION", "")
@@ -553,8 +551,7 @@ def cmd_build_messages():
         all_reviewer_mentions=all_reviewer_mentions,
     )
 
-    num_existing_reviewers = len(all_reviewer_mentions.split(","))
-    if show or (number_of_reviewers == num_existing_reviewers and not extras_enabled):
+    if show or not picked_reviewer_mentions:
         thread_message = ""
     else:
         thread_message = build_thread_message(

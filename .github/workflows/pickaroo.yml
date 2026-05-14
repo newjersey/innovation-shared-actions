@@ -119,9 +119,6 @@ jobs:
       - name: Build Slack messages
         run: python .github/scripts/pickaroo.py build-messages
         env:
-          NUMBER_OF_REVIEWERS: ${{ inputs.number_of_reviewers }}
-          EXTRAS: ${{ inputs.extras }}
-          PICKED_REVIEWERS: ${{ steps.request-reviewers.outputs.picked_reviewers }}
           PICKED_REVIEWER_MENTIONS: ${{ steps.lookup-new-reviewers.outputs.formatted_string }}
           ALL_REVIEWER_MENTIONS: ${{ steps.lookup-current-reviewers.outputs.formatted_string }}
           AUTHOR_MENTION: ${{ steps.lookup-pr-author.outputs.formatted_string }}
