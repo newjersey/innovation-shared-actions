@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from slack import cmd_auth_test, cmd_find_message, cmd_list_users, cmd_post_message, cmd_update_message, find_message, list_users, post_message, update_message
+from slack import cmd_auth_test, cmd_find_message, cmd_list_users, cmd_map_github_to_slack, cmd_post_message, cmd_update_message, find_message, get_profile, list_users, post_message, update_message
 
 
 def test_cmd_auth_test_prints_ok_on_valid_token(tmp_path, capsys):
@@ -463,3 +463,151 @@ def test_cmd_list_users_writes_json_array_to_github_output(tmp_path):
 
     content = output_file.read_text()
     assert 'user_ids=["U001", "U002"]' in content
+
+
+def test_get_profile_returns_profile_data():
+    mock_response = MagicMock()
+    mock_response.json.return_value = {
+        "ok": True,
+        "profile": {
+            "display_name": "Alice",
+            "real_name": "Alice Smith",
+            "image_512": "https://example.com/alice.png",
+            "fields": {
+                "Xf0A3AH8QTS6": {"value": "alice-gh"},
+            },
+        },
+    }
+    mock_response.raise_for_status.return_value = None
+
+    with patch("requests.get", return_value=mock_response):
+        result = get_profile(token="xoxb-token", user_id="U001")
+
+    assert result["display_name"] == "Alice"
+    assert result["image_512"] == "https://example.com/alice.png"
+    assert result["fields"]["Xf0A3AH8QTS6"]["value"] == "alice-gh"
+
+
+def test_get_profile_raises_on_api_error():
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"ok": False, "error": "user_not_found"}
+    mock_response.raise_for_status.return_value = None
+
+    with patch("requests.get", return_value=mock_response):
+        with pytest.raises(RuntimeError, match="user_not_found"):
+            get_profile(token="xoxb-token", user_id="U001")
+
+
+def test_cmd_map_github_to_slack_builds_mapping(tmp_path):
+    output_file = tmp_path / "github_output"
+    output_file.write_text("")
+    env = {
+        "TOKEN": "xoxb-token",
+        "SLACK_FIELD": "Xf0GITHUB",
+        "BACKUP_FIELD": "",
+        "GITHUB_OUTPUT": str(output_file),
+    }
+
+    def mock_get_profile(token, user_id):
+        profiles = {
+            "U001": {
+                "display_name": "Alice",
+                "real_name": "Alice Smith",
+                "image_512": "https://example.com/alice.png",
+                "fields": {"Xf0GITHUB": {"value": "alice-gh"}},
+            },
+            "U002": {
+                "display_name": "Bob",
+                "real_name": "Bob Jones",
+                "image_512": "https://example.com/bob.png",
+                "fields": {"Xf0GITHUB": {"value": ""}},
+            },
+        }
+        return profiles[user_id]
+
+    with (
+        patch.dict("os.environ", env, clear=False),
+        patch("slack.list_users", return_value=["U001", "U002"]),
+        patch("slack.get_profile", side_effect=mock_get_profile),
+    ):
+        cmd_map_github_to_slack()
+
+    import json
+
+    content = output_file.read_text()
+    mapping = json.loads(content.split("github-slack-mapping=")[1].strip())
+    assert "alice-gh" in mapping
+    assert mapping["alice-gh"]["id"] == "U001"
+    assert mapping["alice-gh"]["username"] == "Alice"
+    assert mapping["alice-gh"]["avatar_url"] == "https://example.com/alice.png"
+    assert "bob-gh" not in mapping
+
+
+def test_cmd_map_github_to_slack_uses_backup_field(tmp_path):
+    output_file = tmp_path / "github_output"
+    output_file.write_text("")
+    env = {
+        "TOKEN": "xoxb-token",
+        "SLACK_FIELD": "Xf0GITHUB",
+        "BACKUP_FIELD": "Xf0BIO",
+        "GITHUB_OUTPUT": str(output_file),
+    }
+
+    profile = {
+        "display_name": "Charlie",
+        "real_name": "Charlie Brown",
+        "image_512": "https://example.com/charlie.png",
+        "fields": {
+            "Xf0GITHUB": {"value": ""},
+            "Xf0BIO": {"value": "Engineer | GH: charlie-dev"},
+        },
+    }
+
+    with (
+        patch.dict("os.environ", env, clear=False),
+        patch("slack.list_users", return_value=["U003"]),
+        patch("slack.get_profile", return_value=profile),
+    ):
+        cmd_map_github_to_slack()
+
+    import json
+
+    content = output_file.read_text()
+    mapping = json.loads(content.split("github-slack-mapping=")[1].strip())
+    assert "charlie-dev" in mapping
+    assert mapping["charlie-dev"]["id"] == "U003"
+
+
+def test_cmd_map_github_to_slack_skips_on_profile_error(tmp_path):
+    output_file = tmp_path / "github_output"
+    output_file.write_text("")
+    env = {
+        "TOKEN": "xoxb-token",
+        "SLACK_FIELD": "Xf0GITHUB",
+        "BACKUP_FIELD": "",
+        "GITHUB_OUTPUT": str(output_file),
+    }
+
+    def mock_get_profile(token, user_id):
+        if user_id == "U001":
+            raise RuntimeError("Slack API error: user_not_found")
+        return {
+            "display_name": "Bob",
+            "real_name": "Bob Jones",
+            "image_512": "",
+            "fields": {"Xf0GITHUB": {"value": "bob-gh"}},
+        }
+
+    with (
+        patch.dict("os.environ", env, clear=False),
+        patch("slack.list_users", return_value=["U001", "U002"]),
+        patch("slack.get_profile", side_effect=mock_get_profile),
+    ):
+        cmd_map_github_to_slack()
+
+    import json
+
+    content = output_file.read_text()
+    mapping = json.loads(content.split("github-slack-mapping=")[1].strip())
+    assert "bob-gh" in mapping
+    assert len(mapping) == 1

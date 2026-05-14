@@ -127,6 +127,27 @@ def find_message(token: str, channel: str, message_ts: str) -> bool:
     return messages[0].get("ts") == message_ts
 
 
+def get_profile(token: str, user_id: str) -> dict:
+    """Fetch a Slack user's profile via users.profile.get.
+
+    Returns the profile dict (display_name, real_name, image_512, fields, etc.).
+
+    https://docs.slack.dev/reference/methods/users.profile.get
+    """
+    response = requests.get(
+        "https://slack.com/api/users.profile.get",
+        headers={"Authorization": f"Bearer {token}"},
+        params={"user": user_id},
+    )
+    response.raise_for_status()
+    data = response.json()
+
+    if not data.get("ok"):
+        raise RuntimeError(f"Slack API error: {data.get('error', 'unknown')}")
+
+    return data.get("profile", {})
+
+
 def list_users(token: str) -> list[str]:
     """Fetch all active, non-bot user IDs from Slack via users.list (paginated).
 
@@ -274,6 +295,68 @@ def cmd_list_users():
             f.write(f"user_ids={json.dumps(user_ids)}\n")
 
 
+def cmd_map_github_to_slack():
+    """Build a GitHub-to-Slack user mapping from Slack profile fields.
+
+    Fetches all active users, reads their profiles, and extracts GitHub
+    usernames from configured profile fields. Outputs a JSON mapping to
+    GITHUB_OUTPUT as 'github-slack-mapping'.
+
+    Env vars:
+      TOKEN: Slack OAuth token
+      SLACK_FIELD: Profile field key containing GitHub username
+      BACKUP_FIELD: (optional) Fallback field to regex-match "GH: <username>"
+      GITHUB_OUTPUT: Path to GitHub Actions output file
+    """
+    import re
+
+    token = os.environ["TOKEN"]
+    slack_field = os.environ["SLACK_FIELD"]
+    backup_field = os.environ.get("BACKUP_FIELD", "")
+    github_output = os.environ.get("GITHUB_OUTPUT", "")
+
+    user_ids = list_users(token)
+    print(f"Found {len(user_ids)} active users")
+
+    github_slack_map = {}
+
+    for user_id in user_ids:
+        try:
+            profile = get_profile(token, user_id)
+        except RuntimeError as e:
+            print(f"  Skipping {user_id}: {e}")
+            continue
+
+        display_name = profile.get("display_name") or profile.get("real_name") or "Unknown"
+        fields = profile.get("fields") or {}
+
+        github_username = ""
+        primary = fields.get(slack_field, {})
+        if primary and primary.get("value"):
+            github_username = primary["value"]
+
+        if not github_username and backup_field:
+            backup = fields.get(backup_field, {})
+            backup_value = backup.get("value", "") if backup else ""
+            if backup_value:
+                match = re.search(r"(?:GH|GitHub):\s*([A-Za-z0-9_-]+)", backup_value, re.IGNORECASE)
+                if match:
+                    github_username = match.group(1)
+
+        if github_username:
+            print(f"  Found GitHub username for {display_name} ({user_id}): {github_username}")
+            github_slack_map[github_username] = {
+                "id": user_id,
+                "username": display_name,
+                "avatar_url": profile.get("image_512", ""),
+            }
+
+    print(f"Mapped {len(github_slack_map)} GitHub users")
+    if github_output:
+        with open(github_output, "a") as f:
+            f.write(f"github-slack-mapping={json.dumps(github_slack_map)}\n")
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -286,6 +369,7 @@ def main():
         "update-message": cmd_update_message,
         "find-message": cmd_find_message,
         "list-users": cmd_list_users,
+        "map-github-to-slack": cmd_map_github_to_slack,
     }
     command = sys.argv[1] if len(sys.argv) > 1 else ""
     if command not in commands:
