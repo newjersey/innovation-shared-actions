@@ -5,6 +5,7 @@ import re
 import sys
 
 import requests
+from slack import auth_test, get_profile
 
 # ---------------------------------------------------------------------------
 # Pure helpers
@@ -242,30 +243,6 @@ def is_ooo(status_text: str, status_emoji: str) -> bool:
     return bool(_OOO_PATTERNS.search(combined))
 
 
-def validate_slack_token(token: str) -> bool:
-    """POST https://slack.com/api/auth.test — returns True if token is valid."""
-    response = requests.post(
-        "https://slack.com/api/auth.test",
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    response.raise_for_status()
-    return bool(response.json().get("ok", False))
-
-
-def get_slack_status(slack_user_id: str, token: str) -> tuple[str, str]:
-    """GET https://slack.com/api/users.profile.get — returns (status_text, status_emoji).
-
-    On API error (ok=false), profile is absent and this returns ("", ""), which
-    is_ooo treats as _not_ OOO.
-    """
-    response = requests.get(
-        "https://slack.com/api/users.profile.get",
-        params={"user": slack_user_id},
-        headers={"Authorization": f"Bearer {token}"},
-    )
-    response.raise_for_status()
-    profile = response.json().get("profile", {})
-    return (profile.get("status_text", ""), profile.get("status_emoji", ""))
 
 
 # ---------------------------------------------------------------------------
@@ -334,7 +311,7 @@ def filter_by_slack_status(
     if not gh_slack_mapping_str:
         return candidates
 
-    if not slack_token or not validate_slack_token(slack_token):
+    if not slack_token or not auth_test(slack_token).get("ok"):
         print("ERROR: Slack token validation failed", file=sys.stderr)
         sys.exit(1)
 
@@ -357,7 +334,9 @@ def filter_by_slack_status(
             continue
 
         try:
-            status_text, status_emoji = get_slack_status(slack_user_id, slack_token)
+            profile = get_profile(slack_token, slack_user_id)
+            status_text = profile.get("status_text", "")
+            status_emoji = profile.get("status_emoji", "")
         except Exception as e:
             print(
                 f"WARNING: Slack API call failed for {member}: {e} — including user anyway"

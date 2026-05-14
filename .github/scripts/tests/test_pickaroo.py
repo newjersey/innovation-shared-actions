@@ -20,7 +20,6 @@ from pickaroo import (
     get_pr_comments,
     get_pr_reviews,
     get_requested_reviewers,
-    get_slack_status,
     get_team_members,
     is_ooo,
     parse_pickaroo_comment,
@@ -472,32 +471,6 @@ def test_is_ooo_returns_false_for_future_ooo():
     assert is_ooo("upcoming vacation", ":crystal_ball:") is False
 
 
-def test_get_slack_status_returns_text_and_emoji():
-    mock_response = MagicMock()
-    mock_response.json.return_value = {
-        "ok": True,
-        "profile": {"status_text": "on vacation", "status_emoji": ":palm_tree:"},
-    }
-    mock_response.raise_for_status.return_value = None
-
-    with patch("requests.get", return_value=mock_response) as mock_get:
-        text, emoji = get_slack_status("U123", "slack-token")
-
-    assert text == "on vacation"
-    assert emoji == ":palm_tree:"
-    assert "U123" in str(mock_get.call_args)
-
-
-def test_get_slack_status_returns_empty_strings_when_no_profile():
-    mock_response = MagicMock()
-    mock_response.json.return_value = {"ok": True, "profile": {}}
-    mock_response.raise_for_status.return_value = None
-
-    with patch("requests.get", return_value=mock_response):
-        text, emoji = get_slack_status("U123", "slack-token")
-
-    assert text == ""
-    assert emoji == ""
 
 
 # ---------------------------------------------------------------------------
@@ -602,7 +575,7 @@ def test_filter_by_slack_status_skips_when_no_mapping():
 
 
 def test_filter_by_slack_status_exits_1_when_mapping_present_but_no_token():
-    with patch("pickaroo.validate_slack_token", return_value=False):
+    with patch("pickaroo.auth_test", return_value={"ok": False}):
         with pytest.raises(SystemExit) as exc_info:
             filter_by_slack_status(["alice"], '{"alice": "U123"}', "")
     assert exc_info.value.code == 1
@@ -610,9 +583,10 @@ def test_filter_by_slack_status_exits_1_when_mapping_present_but_no_token():
 
 def test_filter_by_slack_status_excludes_ooo_user():
     mapping = '{"alice": "U123"}'
+    profile = {"status_text": "on vacation", "status_emoji": ":palm_tree:"}
     with (
-        patch("pickaroo.validate_slack_token", return_value=True),
-        patch("pickaroo.get_slack_status", return_value=("on vacation", ":palm_tree:")),
+        patch("pickaroo.auth_test", return_value={"ok": True}),
+        patch("pickaroo.get_profile", return_value=profile),
     ):
         result = filter_by_slack_status(["alice"], mapping, "slack-tok")
     assert result == []
@@ -621,8 +595,8 @@ def test_filter_by_slack_status_excludes_ooo_user():
 def test_filter_by_slack_status_includes_user_not_in_mapping():
     mapping = '{"bob": "U456"}'
     with (
-        patch("pickaroo.validate_slack_token", return_value=True),
-        patch("pickaroo.get_slack_status", return_value=("", "")),
+        patch("pickaroo.auth_test", return_value={"ok": True}),
+        patch("pickaroo.get_profile", return_value={"status_text": "", "status_emoji": ""}),
     ):
         result = filter_by_slack_status(["alice"], mapping, "slack-tok")
     assert result == ["alice"]
@@ -631,8 +605,8 @@ def test_filter_by_slack_status_includes_user_not_in_mapping():
 def test_filter_by_slack_status_includes_user_on_api_failure(capsys):
     mapping = '{"alice": "U123"}'
     with (
-        patch("pickaroo.validate_slack_token", return_value=True),
-        patch("pickaroo.get_slack_status", side_effect=Exception("network error")),
+        patch("pickaroo.auth_test", return_value={"ok": True}),
+        patch("pickaroo.get_profile", side_effect=Exception("network error")),
     ):
         result = filter_by_slack_status(["alice"], mapping, "slack-tok")
     assert result == ["alice"]
