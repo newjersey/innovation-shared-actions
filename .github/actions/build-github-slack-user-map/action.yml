@@ -27,84 +27,50 @@ runs:
     - name: Fetch all Slack users
       id: fetch-users
       shell: bash
-      run: |
-        > /tmp/active_user_ids.txt
-        CURSOR=""
-
-        while true; do
-          if [ -z "$CURSOR" ]; then
-            USERS_RESPONSE=$(curl -s -X GET "https://slack.com/api/users.list?limit=300" \
-              -H "Authorization: Bearer ${{ inputs.token }}")
-          else
-            USERS_RESPONSE=$(curl -s -X GET "https://slack.com/api/users.list?limit=300&cursor=$CURSOR" \
-              -H "Authorization: Bearer ${{ inputs.token }}")
-          fi
-          
-          if [ "$(echo "$USERS_RESPONSE" | jq -r '.ok')" != "true" ]; then
-            echo "Error fetching users: $(echo "$USERS_RESPONSE" | jq -r '.error')"
-            exit 1
-          fi
-          
-          PAGE_ACTIVE_IDS=$(echo "$USERS_RESPONSE" | jq -r '.members | map(select((.deleted // false) == false and (.is_bot // false) == false and .name != "slackbot")) | .[].id')
-          
-          if [ -n "$PAGE_ACTIVE_IDS" ]; then
-            echo "$PAGE_ACTIVE_IDS" >> /tmp/active_user_ids.txt
-          fi
-          
-          NEXT_CURSOR=$(echo "$USERS_RESPONSE" | jq -r '.response_metadata.next_cursor // ""')
-          
-          if [ -z "$NEXT_CURSOR" ] || [ "$NEXT_CURSOR" = "null" ]; then
-            break
-          fi
-          
-          CURSOR="$NEXT_CURSOR"
-        done
-
-        echo "active-user-ids-file=/tmp/active_user_ids.txt" >> $GITHUB_OUTPUT
+      run: python .github/scripts/slack.py list-users
+      env:
+        TOKEN: ${{ inputs.token }}
 
     - name: Build GitHub to Slack mapping
       id: build-mapping
       shell: bash
       run: |
+        set -euo pipefail
 
-        ACTIVE_USER_IDS=$(cat ${{ steps.fetch-users.outputs.active-user-ids-file }})
         GITHUB_SLACK_MAP="{}"
 
-        while IFS= read -r user_id; do
-          if [ -n "$user_id" ]; then
-            PROFILE_RESPONSE=$(curl -s -X GET "https://slack.com/api/users.profile.get?user=$user_id" \
-              -H "Authorization: Bearer ${{ inputs.token }}")
-            
-            DISPLAY_NAME=$(echo "$PROFILE_RESPONSE" | jq -r '.profile.display_name // .profile.real_name // "Unknown"')
-            
-            GITHUB_USERNAME=$(echo "$PROFILE_RESPONSE" | jq -r --arg field "${{ inputs.slack_field }}" '.profile.fields[$field].value // ""')
-            
-            if [ -z "$GITHUB_USERNAME" ] || [ "$GITHUB_USERNAME" = "null" ]; then
-              # Try searching withing backup field
-              if [ -n "${{ inputs.backup_field }}" ]; then
-                BACKUP_VALUE=$(echo "$PROFILE_RESPONSE" | jq -r --arg field "${{ inputs.backup_field }}" '.profile.fields[$field].value // ""')
-                if [ -n "$BACKUP_VALUE" ] && [ "$BACKUP_VALUE" != "null" ]; then
-                  set +e  # Disable exit on error for the grep
-                  EXTRACTED_USERNAME=$(echo "$BACKUP_VALUE" | grep -ioE '(GH|GitHub):\s*[A-Za-z0-9_-]+' | cut -d':' -f2 | xargs)
-                  set -e  # Re-enable
-                  if [ -n "$EXTRACTED_USERNAME" ]; then
-                    GITHUB_USERNAME="$EXTRACTED_USERNAME"
-                  fi
+        for user_id in $(echo '${{ steps.fetch-users.outputs.user_ids }}' | jq -r '.[]'); do
+          PROFILE_RESPONSE=$(curl -s -X GET "https://slack.com/api/users.profile.get?user=$user_id" \
+            -H "Authorization: Bearer ${{ inputs.token }}")
+
+          DISPLAY_NAME=$(echo "$PROFILE_RESPONSE" | jq -r '.profile.display_name // .profile.real_name // "Unknown"')
+
+          GITHUB_USERNAME=$(echo "$PROFILE_RESPONSE" | jq -r --arg field "${{ inputs.slack_field }}" '.profile.fields[$field].value // ""')
+
+          if [ -z "$GITHUB_USERNAME" ] || [ "$GITHUB_USERNAME" = "null" ]; then
+            if [ -n "${{ inputs.backup_field }}" ]; then
+              BACKUP_VALUE=$(echo "$PROFILE_RESPONSE" | jq -r --arg field "${{ inputs.backup_field }}" '.profile.fields[$field].value // ""')
+              if [ -n "$BACKUP_VALUE" ] && [ "$BACKUP_VALUE" != "null" ]; then
+                set +e
+                EXTRACTED_USERNAME=$(echo "$BACKUP_VALUE" | grep -ioE '(GH|GitHub):\s*[A-Za-z0-9_-]+' | cut -d':' -f2 | xargs)
+                set -e
+                if [ -n "$EXTRACTED_USERNAME" ]; then
+                  GITHUB_USERNAME="$EXTRACTED_USERNAME"
                 fi
               fi
             fi
-            
-            if [ -n "$GITHUB_USERNAME" ] && [ "$GITHUB_USERNAME" != "null" ]; then
-              echo "  Found GitHub username for $DISPLAY_NAME ($user_id): $GITHUB_USERNAME"
-              AVATAR_URL=$(echo "$PROFILE_RESPONSE" | jq -r '.profile.image_512 // ""')
-              GITHUB_SLACK_MAP=$(echo "$GITHUB_SLACK_MAP" | jq \
-                --arg github_user "$GITHUB_USERNAME" \
-                --arg slack_id "$user_id" \
-                --arg slack_username "$DISPLAY_NAME" \
-                --arg avatar_url "$AVATAR_URL" \
-                '. + {($github_user): {"id": $slack_id, "username": $slack_username, "avatar_url": $avatar_url}}')
-            fi
           fi
-        done <<< "$ACTIVE_USER_IDS"
+
+          if [ -n "$GITHUB_USERNAME" ] && [ "$GITHUB_USERNAME" != "null" ]; then
+            echo "  Found GitHub username for $DISPLAY_NAME ($user_id): $GITHUB_USERNAME"
+            AVATAR_URL=$(echo "$PROFILE_RESPONSE" | jq -r '.profile.image_512 // ""')
+            GITHUB_SLACK_MAP=$(echo "$GITHUB_SLACK_MAP" | jq \
+              --arg github_user "$GITHUB_USERNAME" \
+              --arg slack_id "$user_id" \
+              --arg slack_username "$DISPLAY_NAME" \
+              --arg avatar_url "$AVATAR_URL" \
+              '. + {($github_user): {"id": $slack_id, "username": $slack_username, "avatar_url": $avatar_url}}')
+          fi
+        done
 
         echo "github-slack-mapping=$(echo "$GITHUB_SLACK_MAP" | jq -c .)" >> $GITHUB_OUTPUT

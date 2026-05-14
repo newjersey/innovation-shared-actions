@@ -127,6 +127,47 @@ def find_message(token: str, channel: str, message_ts: str) -> bool:
     return messages[0].get("ts") == message_ts
 
 
+def list_users(token: str) -> list[str]:
+    """Fetch all active, non-bot user IDs from Slack via users.list (paginated).
+
+    Excludes deleted users, bots, and slackbot.
+
+    https://docs.slack.dev/reference/methods/users.list
+    """
+    all_ids = []
+    cursor = ""
+
+    while True:
+        params = {"limit": "300"}
+        if cursor:
+            params["cursor"] = cursor
+
+        response = requests.get(
+            "https://slack.com/api/users.list",
+            headers={"Authorization": f"Bearer {token}"},
+            params=params,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        if not data.get("ok"):
+            raise RuntimeError(f"Slack API error: {data.get('error', 'unknown')}")
+
+        for member in data.get("members", []):
+            if (
+                not member.get("deleted", False)
+                and not member.get("is_bot", False)
+                and member.get("name") != "slackbot"
+            ):
+                all_ids.append(member["id"])
+
+        cursor = data.get("response_metadata", {}).get("next_cursor", "")
+        if not cursor:
+            break
+
+    return all_ids
+
+
 # ---------------------------------------------------------------------------
 # Subcommands
 # ---------------------------------------------------------------------------
@@ -220,6 +261,19 @@ def cmd_find_message():
     print(f"Found parent message (ts: {message_ts})")
 
 
+def cmd_list_users():
+    """Fetch all active Slack user IDs and output as JSON array."""
+    token = os.environ["TOKEN"]
+    github_output = os.environ.get("GITHUB_OUTPUT", "")
+
+    user_ids = list_users(token)
+
+    print(f"Found {len(user_ids)} active users")
+    if github_output:
+        with open(github_output, "a") as f:
+            f.write(f"user_ids={json.dumps(user_ids)}\n")
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -231,6 +285,7 @@ def main():
         "post-message": cmd_post_message,
         "update-message": cmd_update_message,
         "find-message": cmd_find_message,
+        "list-users": cmd_list_users,
     }
     command = sys.argv[1] if len(sys.argv) > 1 else ""
     if command not in commands:
