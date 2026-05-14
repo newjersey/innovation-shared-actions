@@ -5,7 +5,7 @@ import re
 import sys
 
 import requests
-from slack import auth_test, get_profile
+from slack import auth_test, get_profile, post_message, update_message
 
 # ---------------------------------------------------------------------------
 # Pure helpers
@@ -13,11 +13,19 @@ from slack import auth_test, get_profile
 
 
 def parse_pickaroo_comment(body: str) -> dict:
-    """Extract message_ts and previously_picked from a pickaroo PR comment body."""
+    """Extract message_ts and previously_picked from a pickaroo PR comment body.
+
+    message_ts format: "TS in CHANNEL; TS in CHANNEL; ..."
+    Returns message_ts as a dict of {channel_id: timestamp}.
+    """
     result = {}
-    ts_match = re.search(r"message_ts: (\d+\.\d+)", body)
-    if ts_match:
-        result["message_ts"] = ts_match.group(1)
+    ts_line = re.search(r"message_ts: (.+)", body)
+    if ts_line:
+        message_ts = {}
+        for ts, channel in re.findall(r"(\d+\.\d+) in ([a-zA-Z0-9]+);?", ts_line.group(1)):
+            message_ts[channel] = ts
+        if message_ts:
+            result["message_ts"] = message_ts
     pp_match = re.search(r"previously_picked: (.+)", body)
     if pp_match:
         result["previously_picked"] = pp_match.group(1).rstrip()
@@ -30,11 +38,15 @@ def deduplicate_reviewers(previously_picked: str, new_reviewers: str) -> list[st
     return list(dict.fromkeys(item for item in combined if item))
 
 
-def build_comment_body(message_ts: str, previously_picked: str) -> str:
-    """Format the PR comment body with pickaroo metadata."""
+def build_comment_body(message_ts: dict, previously_picked: str) -> str:
+    """Format the PR comment body with pickaroo metadata.
+
+    message_ts is a dict of {channel_id: timestamp}.
+    """
+    ts_entries = "; ".join(f"{ts} in {ch}" for ch, ts in message_ts.items())
     return (
         "Pickaroo selected and notified reviewers for this PR! 🦘\n\n"
-        f"message_ts: {message_ts}\n"
+        f"message_ts: {ts_entries}\n"
         f"previously_picked: {previously_picked}"
     )
 
@@ -503,13 +515,12 @@ def cmd_find_comment():
     comment_id = str(last["id"])
     parsed = parse_pickaroo_comment(last["body"])
 
-    print(
-        f"Found existing pickaroo comment: id={comment_id}, message_ts={parsed.get('message_ts', '')}"
-    )
+    message_ts = parsed.get("message_ts", {})
+    print(f"Found existing pickaroo comment: id={comment_id}, message_ts={message_ts}")
 
     with open(github_output, "a") as f:
-        if "message_ts" in parsed:
-            f.write(f"message-ts={parsed['message_ts']}\n")
+        if message_ts:
+            f.write(f"message-ts={json.dumps(message_ts)}\n")
         f.write(f"comment-id={comment_id}\n")
         if "previously_picked" in parsed:
             f.write(f"previously-picked={parsed['previously_picked']}\n")
@@ -558,17 +569,88 @@ def cmd_build_messages():
         f.write(f"THREAD_MESSAGE={thread_message}\n")
 
 
+def cmd_send_messages():
+    """Send Slack messages to one or more channels. Supports space-delimited channel IDs."""
+    token = os.environ["TOKEN"]
+    channel_ids = os.environ["CHANNEL_ID"].split()
+    message = os.environ.get("MESSAGE", "")
+    thread_message = os.environ.get("THREAD_MESSAGE", "")
+    message_ts_raw = os.environ.get("MESSAGE_TS", "")
+    username = os.environ.get("USERNAME", "")
+    avatar_url = os.environ.get("AVATAR_URL", "")
+    avatar_emoji = os.environ.get("AVATAR_EMOJI", "")
+    thread_username = os.environ.get("THREAD_USERNAME", "")
+    thread_avatar_url = os.environ.get("THREAD_AVATAR_URL", "")
+    thread_avatar_emoji = os.environ.get("THREAD_AVATAR_EMOJI", "")
+    github_output = os.environ["GITHUB_OUTPUT"]
+
+    if not auth_test(token).get("ok"):
+        print("ERROR: Slack token validation failed", file=sys.stderr)
+        sys.exit(1)
+
+    existing_ts = json.loads(message_ts_raw) if message_ts_raw else {}
+    results = {}
+
+    for channel in channel_ids:
+        ts = existing_ts.get(channel, "")
+
+        if ts and message:
+            print(f"Updating message in {channel} (ts: {ts})")
+            update_message(
+                token=token,
+                channel=channel,
+                ts=ts,
+                text=message,
+                username=username,
+                icon_url=avatar_url,
+                icon_emoji=avatar_emoji,
+            )
+            results[channel] = ts
+        elif message:
+            print(f"Posting new message to {channel}")
+            new_ts = post_message(
+                token=token,
+                channel=channel,
+                text=message,
+                username=username,
+                icon_url=avatar_url,
+                icon_emoji=avatar_emoji,
+            )
+            results[channel] = new_ts
+            ts = new_ts
+
+        if thread_message and ts:
+            print(f"Sending thread reply in {channel}")
+            post_message(
+                token=token,
+                channel=channel,
+                text=thread_message,
+                username=thread_username,
+                icon_url=thread_avatar_url,
+                icon_emoji=thread_avatar_emoji,
+                thread_ts=ts,
+            )
+
+    with open(github_output, "a") as f:
+        f.write(f"messages={json.dumps(results)}\n")
+
+
 def cmd_post_comment():
     token = os.environ["GITHUB_TOKEN"]
     repo = os.environ["GITHUB_REPOSITORY"]
     pr_number = os.environ["PR_NUMBER"]
     reviewers = os.environ.get("PICKED_REVIEWERS", "")
     previously_picked = os.environ.get("PREVIOUSLY_PICKED", "")
-    message_ts = os.environ.get("MESSAGE_TS", "")
+    messages = os.environ.get("MESSAGES", "")
+    previous_messages = os.environ.get("PREVIOUS_MESSAGES", "")
     comment_id = os.environ.get("COMMENT_ID", "")
 
+    prev_ts = json.loads(previous_messages) if previous_messages else {}
+    new_ts = json.loads(messages) if messages else {}
+    merged_ts = {**prev_ts, **new_ts}
+
     all_picked = deduplicate_reviewers(previously_picked, reviewers)
-    body = build_comment_body(message_ts, " ".join(all_picked))
+    body = build_comment_body(merged_ts, " ".join(all_picked))
 
     if comment_id and comment_id != "null":
         print(f"Updating existing comment {comment_id} on PR #{pr_number}")
@@ -589,6 +671,7 @@ def main():
     commands = {
         "find-comment": cmd_find_comment,
         "build-messages": cmd_build_messages,
+        "send-messages": cmd_send_messages,
         "post-comment": cmd_post_comment,
         "select-reviewers": cmd_select_reviewers,
     }

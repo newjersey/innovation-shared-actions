@@ -33,7 +33,7 @@ on:
         description: "Deprecated: use number_of_reviewers instead."
       channel_id:
         required: true
-        description: The Slack Channel ID to notify
+        description: The Slack Channel ID(s) to notify (space delimited)
         type: string
       slack_as_author:
         default: false
@@ -130,9 +130,9 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           SHOW: ${{ inputs.show }}
 
-      - name: Send Slack message
-        id: send-slack-message
-        uses: ./.github/actions/slack-message
+      - name: Send Slack messages
+        id: send-slack-messages
+        run: python .github/scripts/pickaroo.py send-messages
         env:
           # MESSAGE and THREAD_MESSAGE are already set by the build-messages python script
           CHANNEL_ID: ${{ inputs.channel_id }}
@@ -141,7 +141,6 @@ jobs:
           USERNAME: ${{ inputs.slack_as_author && fromJson(steps.lookup-pr-author.outputs.slack_usernames)[0] || 'Pickaroo' }}
           AVATAR_URL: ${{ inputs.slack_as_author && fromJson(steps.lookup-pr-author.outputs.avatar_urls)[0] || '' }}
           AVATAR_EMOJI: ":kangaroo:"
-          # always message as Pickaroo in thread
           THREAD_USERNAME: "Pickaroo"
           THREAD_AVATAR_EMOJI: ":kangaroo:"
 
@@ -152,7 +151,8 @@ jobs:
           PR_NUMBER: ${{ github.event.pull_request.number }}
           PICKED_REVIEWERS: ${{ steps.request-reviewers.outputs.picked_reviewers }}
           PREVIOUSLY_PICKED: ${{ steps.find-comment.outputs.previously-picked }}
-          MESSAGE_TS: ${{ steps.send-slack-message.outputs.message_ts }}
+          MESSAGES: ${{ steps.send-slack-messages.outputs.messages }}
+          PREVIOUS_MESSAGES: ${{ steps.find-comment.outputs.message-ts }}
           COMMENT_ID: ${{ steps.find-comment.outputs.comment-id }}
 
   remove-label:
