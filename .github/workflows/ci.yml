@@ -6,7 +6,7 @@ on:
       - main
 
 jobs:
-  test-pickaroo:
+  test-python:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -20,5 +20,5 @@ jobs:
       - name: Install dependencies
         run: pip install -r .github/scripts/requirements-dev.txt
 
-      - name: Run pickaroo tests
+      - name: Test Python Scripts
         run: pytest .github/scripts/tests/ -v
