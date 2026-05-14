@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from slack import cmd_auth_test, cmd_find_message, cmd_post_message, cmd_update_message, find_message, post_message, update_message
+from slack import cmd_auth_test, cmd_find_message, cmd_list_users, cmd_post_message, cmd_update_message, find_message, list_users, post_message, update_message
 
 
 def test_cmd_auth_test_prints_ok_on_valid_token(tmp_path, capsys):
@@ -376,3 +376,90 @@ def test_cmd_find_message_succeeds_when_message_found(capsys):
 
     captured = capsys.readouterr()
     assert "Found" in captured.out
+
+
+def test_list_users_returns_active_user_ids():
+    mock_response = MagicMock()
+    mock_response.json.return_value = {
+        "ok": True,
+        "members": [
+            {"id": "U001", "deleted": False, "is_bot": False, "name": "alice"},
+            {"id": "U002", "deleted": True, "is_bot": False, "name": "deleted-user"},
+            {"id": "U003", "deleted": False, "is_bot": True, "name": "bot-user"},
+            {"id": "U004", "deleted": False, "is_bot": False, "name": "slackbot"},
+            {"id": "U005", "deleted": False, "is_bot": False, "name": "bob"},
+        ],
+        "response_metadata": {"next_cursor": ""},
+    }
+    mock_response.raise_for_status.return_value = None
+
+    with patch("requests.get", return_value=mock_response):
+        result = list_users(token="xoxb-token")
+
+    assert result == ["U001", "U005"]
+
+
+def test_list_users_paginates():
+    page1 = MagicMock()
+    page1.json.return_value = {
+        "ok": True,
+        "members": [
+            {"id": "U001", "deleted": False, "is_bot": False, "name": "alice"},
+        ],
+        "response_metadata": {"next_cursor": "cursor123"},
+    }
+    page1.raise_for_status.return_value = None
+
+    page2 = MagicMock()
+    page2.json.return_value = {
+        "ok": True,
+        "members": [
+            {"id": "U002", "deleted": False, "is_bot": False, "name": "bob"},
+        ],
+        "response_metadata": {"next_cursor": ""},
+    }
+    page2.raise_for_status.return_value = None
+
+    with patch("requests.get", side_effect=[page1, page2]) as mock_get:
+        result = list_users(token="xoxb-token")
+
+    assert result == ["U001", "U002"]
+    assert mock_get.call_count == 2
+
+
+def test_list_users_raises_on_api_error():
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"ok": False, "error": "invalid_auth"}
+    mock_response.raise_for_status.return_value = None
+
+    with patch("requests.get", return_value=mock_response):
+        with pytest.raises(RuntimeError, match="invalid_auth"):
+            list_users(token="xoxb-token")
+
+
+def test_cmd_list_users_writes_json_array_to_github_output(tmp_path):
+    output_file = tmp_path / "github_output"
+    output_file.write_text("")
+    env = {
+        "TOKEN": "xoxb-token",
+        "GITHUB_OUTPUT": str(output_file),
+    }
+    mock_response = MagicMock()
+    mock_response.json.return_value = {
+        "ok": True,
+        "members": [
+            {"id": "U001", "deleted": False, "is_bot": False, "name": "alice"},
+            {"id": "U002", "deleted": False, "is_bot": False, "name": "bob"},
+        ],
+        "response_metadata": {"next_cursor": ""},
+    }
+    mock_response.raise_for_status.return_value = None
+
+    with (
+        patch.dict("os.environ", env, clear=False),
+        patch("requests.get", return_value=mock_response),
+    ):
+        cmd_list_users()
+
+    content = output_file.read_text()
+    assert 'user_ids=["U001", "U002"]' in content
