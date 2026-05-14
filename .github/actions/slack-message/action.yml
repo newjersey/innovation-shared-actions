@@ -97,36 +97,9 @@ runs:
 
         python .github/scripts/slack.py auth-test
 
-        # If message_ts is provided, verify the parent message exists in Slack
-        if [ -n "$MESSAGE_TS" ] && [ -z "$MESSAGE" ]; then
-          echo "Verifying message with timestamp $MESSAGE_TS exists in Slack"
-
-          RESPONSE=$(curl -s -X GET "https://slack.com/api/conversations.history" \
-            -H "Authorization: Bearer $TOKEN" \
-            -d "channel=$CHANNEL_ID" \
-            -d "latest=$MESSAGE_TS" \
-            -d "limit=1" \
-            -d "inclusive=true")
-
-          if ! echo "$RESPONSE" | jq -e '.ok' > /dev/null; then
-            SLACK_ERROR=$(echo "$RESPONSE" | jq -r '.error // "unknown error"')
-            echo "ERROR: Failed to verify message existence: $SLACK_ERROR. Is your channel_id correct?"
-            exit 1
-          fi
-
-          MESSAGE_COUNT=$(echo "$RESPONSE" | jq '.messages | length')
-          if [ "$MESSAGE_COUNT" -eq 0 ]; then
-            echo "ERROR: No messages found since timestamp $MESSAGE_TS in channel $CHANNEL_ID. Is your channel_id correct?"
-            exit 1
-          fi
-
-          FOUND_TS=$(echo "$RESPONSE" | jq -r '.messages[0].ts')
-          if [ "$FOUND_TS" != "$MESSAGE_TS" ]; then
-            echo "ERROR: Message timestamp mismatch. Expected $MESSAGE_TS, got $FOUND_TS. Is your channel_id correct?"
-            exit 1
-          fi
-
-          echo "Found parent message."
+        if [ -n "$MESSAGE_TS" ] && [ -n "$THREAD_MESSAGE" ] && [ -z "$MESSAGE" ]; then
+          # validate that we can find the parent message if we're threading
+          python .github/scripts/slack.py find-message
         fi
     - name: Send main message to Slack channel
       if: ${{ env.MESSAGE_TS == '' && env.MESSAGE != '' }}
