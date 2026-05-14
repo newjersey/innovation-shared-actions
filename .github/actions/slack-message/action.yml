@@ -132,38 +132,7 @@ runs:
       if: ${{ env.MESSAGE_TS == '' && env.MESSAGE != '' }}
       id: main-message
       shell: bash
-      run: |
-        set -euo pipefail
-
-        # Convert literal \n to actual newlines so jq JSON-encodes them as \n for Slack
-        MESSAGE="${MESSAGE//\\n/$'\n'}"
-
-        PAYLOAD=$(jq -n \
-          --arg channel "$CHANNEL_ID" \
-          --arg markdown_text "$MESSAGE" \
-          --arg username "$USERNAME" \
-          --arg icon_url "$AVATAR_URL" \
-          --arg icon_emoji "$AVATAR_EMOJI" \
-          '{channel: $channel, markdown_text: $markdown_text}
-           | if $username != "" then . + {username: $username} else . end
-           | if $icon_url != "" then . + {icon_url: $icon_url}
-             elif $icon_emoji != "" then . + {icon_emoji: $icon_emoji}
-             else . end')
-
-        RESPONSE=$(curl -s -X POST "https://slack.com/api/chat.postMessage" \
-          -H "Authorization: Bearer $TOKEN" \
-          -H "Content-Type: application/json" \
-          -d "$PAYLOAD")
-
-        if ! echo "$RESPONSE" | jq -e '.ok' > /dev/null; then
-          SLACK_ERROR=$(echo "$RESPONSE" | jq -r '.error // "unknown_error"')
-          echo "ERROR: Failed to send main message: $SLACK_ERROR"
-          exit 1
-        fi
-
-        TS=$(echo "$RESPONSE" | jq -r '.ts')
-        echo "ts=$TS" >> "$GITHUB_OUTPUT"
-        echo "Successfully sent main message (ts: $TS)"
+      run: python .github/scripts/slack.py post-message
     - name: Update main message
       if: ${{ env.MESSAGE_TS != '' && env.MESSAGE != '' }}
       shell: bash
@@ -202,38 +171,10 @@ runs:
       if: ${{ env.THREAD_MESSAGE != '' }}
       id: thread-reply
       shell: bash
-      run: |
-        set -euo pipefail
-
-        THREAD_TS="${MESSAGE_TS:-$MAIN_MESSAGE_TS}"
-
-        # Convert literal \n to actual newlines so jq JSON-encodes them as \n for Slack
-        THREAD_MESSAGE="${THREAD_MESSAGE//\\n/$'\n'}"
-
-        PAYLOAD=$(jq -n \
-          --arg channel "$CHANNEL_ID" \
-          --arg thread_ts "$THREAD_TS" \
-          --arg markdown_text "$THREAD_MESSAGE" \
-          --arg username "$THREAD_USERNAME" \
-          --arg icon_url "$THREAD_AVATAR_URL" \
-          --arg icon_emoji "$THREAD_AVATAR_EMOJI" \
-          '{channel: $channel, thread_ts: $thread_ts, markdown_text: $markdown_text}
-           | if $username != "" then . + {username: $username} else . end
-           | if $icon_url != "" then . + {icon_url: $icon_url}
-             elif $icon_emoji != "" then . + {icon_emoji: $icon_emoji}
-             else . end')
-
-        RESPONSE=$(curl -s -X POST "https://slack.com/api/chat.postMessage" \
-          -H "Authorization: Bearer $TOKEN" \
-          -H "Content-Type: application/json" \
-          -d "$PAYLOAD")
-
-        if ! echo "$RESPONSE" | jq -e '.ok' > /dev/null; then
-          SLACK_ERROR=$(echo "$RESPONSE" | jq -r '.error // "unknown_error"')
-          echo "ERROR: Failed to send thread reply: $SLACK_ERROR"
-          exit 1
-        fi
-
-        echo "Successfully sent thread reply"
+      run: python .github/scripts/slack.py post-message
       env:
-        MAIN_MESSAGE_TS: ${{ steps.main-message.outputs.ts }}
+        MESSAGE: ${{ env.THREAD_MESSAGE }}
+        USERNAME: ${{ env.THREAD_USERNAME }}
+        AVATAR_URL: ${{ env.THREAD_AVATAR_URL }}
+        AVATAR_EMOJI: ${{ env.THREAD_AVATAR_EMOJI }}
+        THREAD_TS: ${{ env.MESSAGE_TS || steps.main-message.outputs.ts }}
