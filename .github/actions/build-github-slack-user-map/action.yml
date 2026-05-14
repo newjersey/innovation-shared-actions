@@ -24,53 +24,11 @@ runs:
       run: python .github/scripts/slack.py auth-test
       env:
         TOKEN: ${{ inputs.token }}
-    - name: Fetch all Slack users
-      id: fetch-users
-      shell: bash
-      run: python .github/scripts/slack.py list-users
-      env:
-        TOKEN: ${{ inputs.token }}
-
     - name: Build GitHub to Slack mapping
       id: build-mapping
       shell: bash
-      run: |
-        set -euo pipefail
-
-        GITHUB_SLACK_MAP="{}"
-
-        for user_id in $(echo '${{ steps.fetch-users.outputs.user_ids }}' | jq -r '.[]'); do
-          PROFILE_RESPONSE=$(curl -s -X GET "https://slack.com/api/users.profile.get?user=$user_id" \
-            -H "Authorization: Bearer ${{ inputs.token }}")
-
-          DISPLAY_NAME=$(echo "$PROFILE_RESPONSE" | jq -r '.profile.display_name // .profile.real_name // "Unknown"')
-
-          GITHUB_USERNAME=$(echo "$PROFILE_RESPONSE" | jq -r --arg field "${{ inputs.slack_field }}" '.profile.fields[$field].value // ""')
-
-          if [ -z "$GITHUB_USERNAME" ] || [ "$GITHUB_USERNAME" = "null" ]; then
-            if [ -n "${{ inputs.backup_field }}" ]; then
-              BACKUP_VALUE=$(echo "$PROFILE_RESPONSE" | jq -r --arg field "${{ inputs.backup_field }}" '.profile.fields[$field].value // ""')
-              if [ -n "$BACKUP_VALUE" ] && [ "$BACKUP_VALUE" != "null" ]; then
-                set +e
-                EXTRACTED_USERNAME=$(echo "$BACKUP_VALUE" | grep -ioE '(GH|GitHub):\s*[A-Za-z0-9_-]+' | cut -d':' -f2 | xargs)
-                set -e
-                if [ -n "$EXTRACTED_USERNAME" ]; then
-                  GITHUB_USERNAME="$EXTRACTED_USERNAME"
-                fi
-              fi
-            fi
-          fi
-
-          if [ -n "$GITHUB_USERNAME" ] && [ "$GITHUB_USERNAME" != "null" ]; then
-            echo "  Found GitHub username for $DISPLAY_NAME ($user_id): $GITHUB_USERNAME"
-            AVATAR_URL=$(echo "$PROFILE_RESPONSE" | jq -r '.profile.image_512 // ""')
-            GITHUB_SLACK_MAP=$(echo "$GITHUB_SLACK_MAP" | jq \
-              --arg github_user "$GITHUB_USERNAME" \
-              --arg slack_id "$user_id" \
-              --arg slack_username "$DISPLAY_NAME" \
-              --arg avatar_url "$AVATAR_URL" \
-              '. + {($github_user): {"id": $slack_id, "username": $slack_username, "avatar_url": $avatar_url}}')
-          fi
-        done
-
-        echo "github-slack-mapping=$(echo "$GITHUB_SLACK_MAP" | jq -c .)" >> $GITHUB_OUTPUT
+      run: python .github/scripts/slack.py map-github-to-slack
+      env:
+        TOKEN: ${{ inputs.token }}
+        SLACK_FIELD: ${{ inputs.slack_field }}
+        BACKUP_FIELD: ${{ inputs.backup_field }}
