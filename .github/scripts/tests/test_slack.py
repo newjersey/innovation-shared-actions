@@ -1,7 +1,7 @@
 from unittest.mock import MagicMock, patch
 
 import pytest
-from slack import cmd_auth_test, cmd_post_message, post_message
+from slack import cmd_auth_test, cmd_post_message, cmd_update_message, post_message, update_message
 
 
 def test_cmd_auth_test_prints_ok_on_valid_token(tmp_path, capsys):
@@ -175,6 +175,96 @@ def test_cmd_post_message_writes_ts_to_github_output(tmp_path):
         patch("requests.post", return_value=mock_response),
     ):
         cmd_post_message()
+
+    content = output_file.read_text()
+    assert "ts=1234.5678" in content
+
+
+def test_update_message_sends_correct_payload():
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"ok": True, "ts": "1234.5678"}
+    mock_response.raise_for_status.return_value = None
+
+    with patch("requests.post", return_value=mock_response) as mock_post:
+        ts = update_message(
+            token="xoxb-token",
+            channel="C0CH1",
+            ts="1234.5678",
+            text="updated text",
+            username="Pickaroo",
+            icon_url="",
+            icon_emoji=":kangaroo:",
+        )
+
+    assert ts == "1234.5678"
+    payload = mock_post.call_args[1]["json"]
+    assert payload["channel"] == "C0CH1"
+    assert payload["ts"] == "1234.5678"
+    assert payload["markdown_text"] == "updated text"
+    assert payload["username"] == "Pickaroo"
+    assert payload["icon_emoji"] == ":kangaroo:"
+
+
+def test_update_message_raises_on_slack_error():
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"ok": False, "error": "message_not_found"}
+    mock_response.raise_for_status.return_value = None
+
+    with patch("requests.post", return_value=mock_response):
+        with pytest.raises(RuntimeError, match="message_not_found"):
+            update_message(
+                token="xoxb-token",
+                channel="C0CH1",
+                ts="1234.5678",
+                text="updated",
+                username="",
+                icon_url="",
+                icon_emoji="",
+            )
+
+
+def test_update_message_converts_literal_newlines():
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"ok": True, "ts": "1234.5678"}
+    mock_response.raise_for_status.return_value = None
+
+    with patch("requests.post", return_value=mock_response) as mock_post:
+        update_message(
+            token="xoxb-token",
+            channel="C0CH1",
+            ts="1234.5678",
+            text="line1\\nline2",
+            username="",
+            icon_url="",
+            icon_emoji="",
+        )
+
+    payload = mock_post.call_args[1]["json"]
+    assert payload["markdown_text"] == "line1\nline2"
+
+
+def test_cmd_update_message_writes_ts_to_github_output(tmp_path):
+    output_file = tmp_path / "github_output"
+    output_file.write_text("")
+    env = {
+        "TOKEN": "xoxb-token",
+        "CHANNEL_ID": "C0CH1",
+        "MESSAGE_TS": "1234.5678",
+        "MESSAGE": "updated",
+        "USERNAME": "",
+        "AVATAR_URL": "",
+        "AVATAR_EMOJI": "",
+        "GITHUB_OUTPUT": str(output_file),
+    }
+    mock_response = MagicMock()
+    mock_response.json.return_value = {"ok": True, "ts": "1234.5678"}
+    mock_response.raise_for_status.return_value = None
+
+    with (
+        patch.dict("os.environ", env, clear=False),
+        patch("requests.post", return_value=mock_response),
+    ):
+        cmd_update_message()
 
     content = output_file.read_text()
     assert "ts=1234.5678" in content

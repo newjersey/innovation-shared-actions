@@ -136,37 +136,7 @@ runs:
     - name: Update main message
       if: ${{ env.MESSAGE_TS != '' && env.MESSAGE != '' }}
       shell: bash
-      run: |
-        set -euo pipefail
-
-        # Convert literal \n to actual newlines so jq JSON-encodes them correctly
-        MESSAGE="${MESSAGE//\\n/$'\n'}"
-
-        PAYLOAD=$(jq -n \
-          --arg channel "$CHANNEL_ID" \
-          --arg ts "$MESSAGE_TS" \
-          --arg markdown_text "$MESSAGE" \
-          --arg username "$USERNAME" \
-          --arg icon_url "$AVATAR_URL" \
-          --arg icon_emoji "$AVATAR_EMOJI" \
-          '{channel: $channel, ts: $ts, markdown_text: $markdown_text}
-           | if $username != "" then . + {username: $username} else . end
-           | if $icon_url != "" then . + {icon_url: $icon_url}
-             elif $icon_emoji != "" then . + {icon_emoji: $icon_emoji}
-             else . end')
-
-        RESPONSE=$(curl -s -X POST "https://slack.com/api/chat.update" \
-          -H "Authorization: Bearer $TOKEN" \
-          -H "Content-Type: application/json" \
-          -d "$PAYLOAD")
-
-        if ! echo "$RESPONSE" | jq -e '.ok' > /dev/null; then
-          SLACK_ERROR=$(echo "$RESPONSE" | jq -r '.error // "unknown_error"')
-          echo "ERROR: Failed to update main message: $SLACK_ERROR"
-          exit 1
-        fi
-
-        echo "Successfully updated main message (ts: $MESSAGE_TS)"
+      run: python .github/scripts/slack.py update-message
     - name: Send thread reply
       if: ${{ env.THREAD_MESSAGE != '' }}
       id: thread-reply
