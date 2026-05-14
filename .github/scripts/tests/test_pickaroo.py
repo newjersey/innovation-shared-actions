@@ -13,6 +13,7 @@ from pickaroo import (
     cmd_find_comment,
     cmd_post_comment,
     cmd_select_reviewers,
+    cmd_send_messages,
     count_existing_reviewers,
     deduplicate_reviewers,
     filter_by_slack_status,
@@ -32,17 +33,27 @@ from pickaroo import (
 def test_parse_pickaroo_comment_extracts_message_ts():
     body = (
         "Pickaroo selected and notified reviewers for this PR! 🦘\n\n"
-        "message_ts: 1234567890.123456\n"
+        "message_ts: 1234567890.123456 in C0CH1\n"
         "previously_picked: alice bob"
     )
     result = parse_pickaroo_comment(body)
-    assert result["message_ts"] == "1234567890.123456"
+    assert result["message_ts"] == {"C0CH1": "1234567890.123456"}
+
+
+def test_parse_pickaroo_comment_extracts_multi_channel_message_ts():
+    body = (
+        "Pickaroo selected and notified reviewers for this PR! 🦘\n\n"
+        "message_ts: 1234.5678 in C0CH1; 9876.5432 in C0CH2\n"
+        "previously_picked: alice bob"
+    )
+    result = parse_pickaroo_comment(body)
+    assert result["message_ts"] == {"C0CH1": "1234.5678", "C0CH2": "9876.5432"}
 
 
 def test_parse_pickaroo_comment_extracts_previously_picked():
     body = (
         "Pickaroo selected and notified reviewers for this PR! 🦘\n\n"
-        "message_ts: 1234567890.123456\n"
+        "message_ts: 1234567890.123456 in C0CH1\n"
         "previously_picked: alice bob carol"
     )
     result = parse_pickaroo_comment(body)
@@ -60,12 +71,18 @@ def test_deduplicate_reviewers_merges_and_deduplicates():
 
 
 def test_build_comment_body_includes_message_ts():
-    result = build_comment_body("1234567890.123456", "alice bob")
-    assert "message_ts: 1234567890.123456" in result
+    result = build_comment_body({"C0CH1": "1234567890.123456"}, "alice bob")
+    assert "message_ts: 1234567890.123456 in C0CH1" in result
+
+
+def test_build_comment_body_multi_channel():
+    result = build_comment_body({"C0CH1": "1234.5678", "C0CH2": "9876.5432"}, "alice")
+    assert "1234.5678 in C0CH1" in result
+    assert "9876.5432 in C0CH2" in result
 
 
 def test_build_comment_body_includes_previously_picked():
-    result = build_comment_body("1234567890.123456", "alice bob carol")
+    result = build_comment_body({"C0CH1": "1234567890.123456"}, "alice bob carol")
     assert "previously_picked: alice bob carol" in result
 
 
@@ -326,7 +343,8 @@ def _post_comment_env(overrides=None):
         "PR_NUMBER": "7",
         "PICKED_REVIEWERS": "carol",
         "PREVIOUSLY_PICKED": "alice bob",
-        "MESSAGE_TS": "1234567890.654321",
+        "MESSAGES": '{"C0CH1": "1234567890.654321"}',
+        "PREVIOUS_MESSAGES": "",
         "COMMENT_ID": "",
     }
     if overrides:
@@ -471,8 +489,6 @@ def test_is_ooo_returns_false_for_future_ooo():
     assert is_ooo("upcoming vacation", ":crystal_ball:") is False
 
 
-
-
 # ---------------------------------------------------------------------------
 # Selection logic
 # ---------------------------------------------------------------------------
@@ -596,7 +612,9 @@ def test_filter_by_slack_status_includes_user_not_in_mapping():
     mapping = '{"bob": "U456"}'
     with (
         patch("pickaroo.auth_test", return_value={"ok": True}),
-        patch("pickaroo.get_profile", return_value={"status_text": "", "status_emoji": ""}),
+        patch(
+            "pickaroo.get_profile", return_value={"status_text": "", "status_emoji": ""}
+        ),
     ):
         result = filter_by_slack_status(["alice"], mapping, "slack-tok")
     assert result == ["alice"]
@@ -760,3 +778,158 @@ def test_cmd_select_reviewers_no_extra_pick_when_extras_disabled(tmp_path):
         cmd_select_reviewers()
 
     mock_request.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# cmd_send_messages
+# ---------------------------------------------------------------------------
+
+
+def _send_messages_env(tmp_path, overrides=None):
+    output_file = tmp_path / "github_output"
+    output_file.write_text("")
+    base = {
+        "CHANNEL_ID": "C0CH1",
+        "MESSAGE": "hello world",
+        "THREAD_MESSAGE": "",
+        "MESSAGE_TS": "",
+        "TOKEN": "xoxb-token",
+        "USERNAME": "Pickaroo",
+        "AVATAR_URL": "",
+        "AVATAR_EMOJI": ":kangaroo:",
+        "THREAD_USERNAME": "",
+        "THREAD_AVATAR_URL": "",
+        "THREAD_AVATAR_EMOJI": "",
+        "GITHUB_OUTPUT": str(output_file),
+    }
+    if overrides:
+        base.update(overrides)
+    return output_file, base
+
+
+def test_cmd_send_messages_posts_to_single_channel(tmp_path):
+    output_file, env = _send_messages_env(tmp_path)
+
+    with (
+        patch.dict("os.environ", env, clear=False),
+        patch("pickaroo.auth_test", return_value={"ok": True}),
+        patch("pickaroo.post_message", return_value="1111.2222") as mock_post,
+        patch("pickaroo.update_message") as mock_update,
+    ):
+        cmd_send_messages()
+
+    mock_post.assert_called_once()
+    mock_update.assert_not_called()
+    import json
+
+    content = output_file.read_text()
+    messages = json.loads(content.split("messages=")[1].strip())
+    assert messages == {"C0CH1": "1111.2222"}
+
+
+def test_cmd_send_messages_posts_to_multiple_channels(tmp_path):
+    output_file, env = _send_messages_env(tmp_path, {"CHANNEL_ID": "C0CH1 C0CH2"})
+
+    with (
+        patch.dict("os.environ", env, clear=False),
+        patch("pickaroo.auth_test", return_value={"ok": True}),
+        patch(
+            "pickaroo.post_message", side_effect=["1111.2222", "3333.4444"]
+        ) as mock_post,
+        patch("pickaroo.update_message"),
+    ):
+        cmd_send_messages()
+
+    assert mock_post.call_count == 2
+    import json
+
+    content = output_file.read_text()
+    messages = json.loads(content.split("messages=")[1].strip())
+    assert messages == {"C0CH1": "1111.2222", "C0CH2": "3333.4444"}
+
+
+def test_cmd_send_messages_updates_existing_and_posts_new(tmp_path):
+    output_file, env = _send_messages_env(
+        tmp_path,
+        {
+            "CHANNEL_ID": "C0CH1 C0CH2",
+            "MESSAGE_TS": '{"C0CH1": "1111.2222"}',
+        },
+    )
+
+    with (
+        patch.dict("os.environ", env, clear=False),
+        patch("pickaroo.auth_test", return_value={"ok": True}),
+        patch("pickaroo.post_message", return_value="3333.4444") as mock_post,
+        patch("pickaroo.update_message") as mock_update,
+    ):
+        cmd_send_messages()
+
+    mock_update.assert_called_once()
+    assert mock_update.call_args[1]["channel"] == "C0CH1"
+    mock_post.assert_called_once()
+    assert mock_post.call_args[1]["channel"] == "C0CH2"
+
+
+def test_cmd_send_messages_sends_thread_to_all_channels(tmp_path):
+    output_file, env = _send_messages_env(
+        tmp_path,
+        {
+            "CHANNEL_ID": "C0CH1 C0CH2",
+            "THREAD_MESSAGE": "thread reply",
+            "THREAD_USERNAME": "Pickaroo",
+            "THREAD_AVATAR_EMOJI": ":kangaroo:",
+        },
+    )
+
+    with (
+        patch.dict("os.environ", env, clear=False),
+        patch("pickaroo.auth_test", return_value={"ok": True}),
+        patch(
+            "pickaroo.post_message", side_effect=["1111.2222", "3333.4444", "t1", "t2"]
+        ) as mock_post,
+        patch("pickaroo.update_message"),
+    ):
+        cmd_send_messages()
+
+    # 2 main messages + 2 thread replies = 4 calls
+    assert mock_post.call_count == 4
+
+
+def test_cmd_send_messages_ignores_ledger_channels_not_in_input(tmp_path):
+    output_file, env = _send_messages_env(
+        tmp_path,
+        {
+            "CHANNEL_ID": "C0CH2",
+            "MESSAGE_TS": '{"C0CH1": "1111.2222", "C0CH2": "3333.4444"}',
+        },
+    )
+
+    with (
+        patch.dict("os.environ", env, clear=False),
+        patch("pickaroo.auth_test", return_value={"ok": True}),
+        patch("pickaroo.post_message") as mock_post,
+        patch("pickaroo.update_message") as mock_update,
+    ):
+        cmd_send_messages()
+
+    mock_update.assert_called_once()
+    assert mock_update.call_args[1]["channel"] == "C0CH2"
+    mock_post.assert_not_called()
+    import json
+
+    content = output_file.read_text()
+    messages = json.loads(content.split("messages=")[1].strip())
+    assert "C0CH1" not in messages
+
+
+def test_cmd_send_messages_exits_1_on_bad_token(tmp_path):
+    _, env = _send_messages_env(tmp_path)
+
+    with (
+        patch.dict("os.environ", env, clear=False),
+        patch("pickaroo.auth_test", return_value={"ok": False}),
+    ):
+        with pytest.raises(SystemExit) as exc_info:
+            cmd_send_messages()
+    assert exc_info.value.code == 1
