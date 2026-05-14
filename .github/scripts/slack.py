@@ -63,6 +63,40 @@ def post_message(
     return data["ts"]
 
 
+def update_message(
+    token: str,
+    channel: str,
+    ts: str,
+    text: str,
+    username: str,
+    icon_url: str,
+    icon_emoji: str,
+) -> str:
+    """Update an existing Slack message via chat.update. Returns the message timestamp.
+
+    https://docs.slack.dev/reference/methods/chat.update
+    """
+    text = text.replace("\\n", "\n")
+    payload = {"channel": channel, "ts": ts, "markdown_text": text}
+    if username:
+        payload["username"] = username
+    if icon_url:
+        payload["icon_url"] = icon_url
+    elif icon_emoji:
+        payload["icon_emoji"] = icon_emoji
+
+    response = requests.post(
+        "https://slack.com/api/chat.update",
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json=payload,
+    )
+    response.raise_for_status()
+    data = response.json()
+    if not data.get("ok"):
+        raise RuntimeError(f"Slack API error: {data.get('error', 'unknown')}")
+    return data["ts"]
+
+
 # ---------------------------------------------------------------------------
 # Subcommands
 # ---------------------------------------------------------------------------
@@ -113,6 +147,33 @@ def cmd_post_message():
             f.write(f"ts={ts}\n")
 
 
+def cmd_update_message():
+    """Update an existing Slack message."""
+    token = os.environ["TOKEN"]
+    channel = os.environ["CHANNEL_ID"]
+    message_ts = os.environ["MESSAGE_TS"]
+    text = os.environ["MESSAGE"]
+    username = os.environ.get("USERNAME", "")
+    icon_url = os.environ.get("AVATAR_URL", "")
+    icon_emoji = os.environ.get("AVATAR_EMOJI", "")
+    github_output = os.environ.get("GITHUB_OUTPUT", "")
+
+    ts = update_message(
+        token=token,
+        channel=channel,
+        ts=message_ts,
+        text=text,
+        username=username,
+        icon_url=icon_url,
+        icon_emoji=icon_emoji,
+    )
+
+    print(f"Successfully updated message (ts: {ts})")
+    if github_output:
+        with open(github_output, "a") as f:
+            f.write(f"ts={ts}\n")
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -122,6 +183,7 @@ def main():
     commands = {
         "auth-test": cmd_auth_test,
         "post-message": cmd_post_message,
+        "update-message": cmd_update_message,
     }
     command = sys.argv[1] if len(sys.argv) > 1 else ""
     if command not in commands:
