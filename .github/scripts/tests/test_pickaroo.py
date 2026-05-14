@@ -317,14 +317,11 @@ def test_cmd_build_messages_pr_title_with_special_chars_does_not_break(tmp_path)
     assert title in content
 
 
-def test_cmd_build_messages_no_thread_with_enough_existing_reviewers(tmp_path):
-    """When the number of existing reviewers equals the number requested, and the
-    caller disabled EXTRAS, there's nothing to thread."""
+def test_cmd_build_messages_no_thread_when_no_new_picks(tmp_path):
+    """No new reviewers picked means no thread notification."""
     github_env, env = _build_messages_env(
         tmp_path,
         {
-            "EXTRAS": "false",
-            "NUMBER_OF_REVIEWERS": "2",
             "PICKED_REVIEWERS": "",
             "PICKED_REVIEWER_MENTIONS": "",
             "ALL_REVIEWER_MENTIONS": "<@U123>, <@U321>",
@@ -334,6 +331,26 @@ def test_cmd_build_messages_no_thread_with_enough_existing_reviewers(tmp_path):
         cmd_build_messages()
     content = github_env.read_text()
     assert "THREAD_MESSAGE=\n" in content
+
+
+def test_cmd_build_messages_threads_when_new_reviewers_picked(tmp_path):
+    """New reviewers picked should always get a thread notification."""
+    github_env, env = _build_messages_env(
+        tmp_path,
+        {
+            "EXTRAS": "false",
+            "NUMBER_OF_REVIEWERS": "1",
+            "PICKED_REVIEWERS": "alice",
+            "PICKED_REVIEWER_MENTIONS": "<@U123>",
+            "ALL_REVIEWER_MENTIONS": "<@U123>",
+        },
+    )
+    with patch.dict("os.environ", env, clear=False):
+        cmd_build_messages()
+    content = github_env.read_text()
+    assert "THREAD_MESSAGE=\n" not in content
+    assert "THREAD_MESSAGE=" in content
+    assert "THREAD_MESSAGE=" in content
 
 
 def _post_comment_env(overrides=None):
