@@ -97,6 +97,36 @@ def update_message(
     return data["ts"]
 
 
+def find_message(token: str, channel: str, message_ts: str) -> bool:
+    """Check if a message exists in a Slack channel using conversations.history.
+
+    Returns True if the message is found with matching timestamp, False otherwise.
+
+    https://docs.slack.dev/reference/methods/conversations.history
+    """
+    response = requests.get(
+        "https://slack.com/api/conversations.history",
+        headers={"Authorization": f"Bearer {token}"},
+        params={
+            "channel": channel,
+            "latest": message_ts,
+            "limit": "1",
+            "inclusive": "true",
+        },
+    )
+    response.raise_for_status()
+    data = response.json()
+
+    if not data.get("ok"):
+        return False
+
+    messages = data.get("messages", [])
+    if not messages:
+        return False
+
+    return messages[0].get("ts") == message_ts
+
+
 # ---------------------------------------------------------------------------
 # Subcommands
 # ---------------------------------------------------------------------------
@@ -174,6 +204,22 @@ def cmd_update_message():
             f.write(f"ts={ts}\n")
 
 
+def cmd_find_message():
+    """Find a message in a Slack channel. Exits 1 if not found."""
+    token = os.environ["TOKEN"]
+    channel = os.environ["CHANNEL_ID"]
+    message_ts = os.environ["MESSAGE_TS"]
+
+    if not find_message(token, channel, message_ts):
+        print(
+            f"ERROR: Message {message_ts} not found in channel {channel}. Is your channel_id correct?",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    print(f"Found parent message (ts: {message_ts})")
+
+
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
@@ -184,6 +230,7 @@ def main():
         "auth-test": cmd_auth_test,
         "post-message": cmd_post_message,
         "update-message": cmd_update_message,
+        "find-message": cmd_find_message,
     }
     command = sys.argv[1] if len(sys.argv) > 1 else ""
     if command not in commands:
