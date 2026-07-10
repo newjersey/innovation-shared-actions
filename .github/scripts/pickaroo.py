@@ -385,6 +385,7 @@ def cmd_select_reviewers():
     include_users = os.environ.get("INCLUDE_USERS", "").split()
     exclude_teams = os.environ.get("EXCLUDE_TEAMS", "").split()
     exclude_users = os.environ.get("EXCLUDE_USERS", "").split()
+    previously_picked = os.environ.get("PREVIOUSLY_PICKED", "").split()
     github_output = os.environ["GITHUB_OUTPUT"]
 
     try:
@@ -424,13 +425,13 @@ def cmd_select_reviewers():
     include_set.update(include_users)
     print(f"Include pool: {sorted(include_set)}")
 
-    # Build exclude set
+    # Build exclude set for counting existing reviewers (user/team excludes only)
     exclude_set = set()
     for team in exclude_teams:
         print(f"Fetching members for exclude team: {team}")
         exclude_set.update(get_team_members(org, team, token))
     exclude_set.update(exclude_users)
-    print(f"Exclude set: {sorted(exclude_set)}")
+    print(f"Exclude set (user/team): {sorted(exclude_set)}")
 
     print("Fetching repository collaborators")
     collaborators_set = set(get_collaborators(repo, token))
@@ -452,9 +453,18 @@ def cmd_select_reviewers():
     )
     print(f"Valid existing reviewers: {valid_existing} / {n} required")
 
+    # Add previously-picked reviewers who are NO LONGER on the PR to the exclude set
+    # for candidate pool building. This prevents re-picking removed reviewers while
+    # still allowing current reviewers to count toward the requirement.
+    previously_picked_set = set(previously_picked)
+    removed_reviewers = previously_picked_set - existing_set
+    exclude_with_removed = exclude_set | removed_reviewers
+    if removed_reviewers:
+        print(f"Excluding removed previously-picked reviewers: {sorted(removed_reviewers)}")
+
     candidates = build_candidate_pool(
         include_set,
-        exclude_set,
+        exclude_with_removed,
         collaborators_set,
         pr_author,
         existing_set,

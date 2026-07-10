@@ -797,6 +797,80 @@ def test_cmd_select_reviewers_no_extra_pick_when_extras_disabled(tmp_path):
     mock_request.assert_not_called()
 
 
+def test_cmd_select_reviewers_existing_reviewer_satisfies_requirement_despite_exclude(
+    tmp_path,
+):
+    """
+    Regression test for bug where existing reviewers were excluded from counting.
+
+    Scenario: When a reviewer is already on the PR and is in the include pool but
+    not in the user-provided exclude list, they should count toward satisfying the
+    number_of_reviewers requirement, even if they appear in exclude_users due to
+    being previously picked.
+
+    This test ensures that the workflow's removal of previously-picked from EXCLUDE_USERS
+    prevents them from being incorrectly excluded when counting valid existing reviewers.
+    """
+    github_output, env = _select_reviewers_env(
+        tmp_path,
+        {
+            "INCLUDE_USERS": "alice bob carol",
+            "NUMBER_OF_REVIEWERS": "1",
+            "EXTRAS": "false",
+        },
+    )
+
+    with (
+        patch.dict("os.environ", env, clear=False),
+        patch("pickaroo.get_collaborators", return_value=["alice", "bob", "carol"]),
+        patch("pickaroo.get_requested_reviewers", return_value=["alice"]),
+        patch("pickaroo.get_pr_reviews", return_value=[]),
+        patch("pickaroo.request_reviewers") as mock_request,
+    ):
+        cmd_select_reviewers()
+
+    # alice should count as valid → slots satisfied → no new picks
+    mock_request.assert_not_called()
+    content = github_output.read_text()
+    assert "picked_reviewers=\n" in content
+    assert "all_reviewers=alice\n" in content
+
+
+def test_cmd_select_reviewers_removed_previously_picked_cannot_be_repicked(tmp_path):
+    """
+    Removed previously-picked reviewers should be excluded from the candidate pool.
+
+    Scenario: anne was previously picked but then removed from the PR. When pickaroo
+    runs again, anne should NOT be eligible to be picked again, but bob (who is still
+    on the PR) should count toward satisfying the requirement.
+    """
+    github_output, env = _select_reviewers_env(
+        tmp_path,
+        {
+            "INCLUDE_USERS": "anne bob carol",
+            "PREVIOUSLY_PICKED": "anne bob",
+            "NUMBER_OF_REVIEWERS": "1",
+            "EXTRAS": "false",
+        },
+    )
+
+    with (
+        patch.dict("os.environ", env, clear=False),
+        patch("pickaroo.get_collaborators", return_value=["anne", "bob", "carol"]),
+        patch("pickaroo.get_requested_reviewers", return_value=["bob"]),
+        patch("pickaroo.get_pr_reviews", return_value=[]),
+        patch("pickaroo.request_reviewers") as mock_request,
+    ):
+        cmd_select_reviewers()
+
+    # bob should count as valid → slots satisfied → no new picks
+    # anne should be excluded from candidate pool
+    mock_request.assert_not_called()
+    content = github_output.read_text()
+    assert "picked_reviewers=\n" in content
+    assert "all_reviewers=bob\n" in content
+
+
 # ---------------------------------------------------------------------------
 # cmd_send_messages
 # ---------------------------------------------------------------------------

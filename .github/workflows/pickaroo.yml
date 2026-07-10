@@ -84,7 +84,8 @@ jobs:
           INCLUDE_TEAMS: ${{ inputs.include_teams }}
           INCLUDE_USERS: ${{ inputs.include_users }}
           EXCLUDE_TEAMS: ${{ inputs.exclude_teams }}
-          EXCLUDE_USERS: ${{ inputs.exclude_users }} ${{ steps.find-comment.outputs.previously-picked }}
+          EXCLUDE_USERS: ${{ inputs.exclude_users }}
+          PREVIOUSLY_PICKED: ${{ steps.find-comment.outputs.previously-picked }}
           NUMBER_OF_REVIEWERS: ${{ inputs.number_of_reviewers }}
           NUMBER_OF_REPICKS: ${{ inputs.number_of_repicks }}
           EXTRAS: ${{ inputs.extras }}
