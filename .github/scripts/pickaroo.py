@@ -22,7 +22,9 @@ def parse_pickaroo_comment(body: str) -> dict:
     ts_line = re.search(r"message_ts: (.+)", body)
     if ts_line:
         message_ts = {}
-        for ts, channel in re.findall(r"(\d+\.\d+) in ([a-zA-Z0-9]+);?", ts_line.group(1)):
+        for ts, channel in re.findall(
+            r"(\d+\.\d+) in ([a-zA-Z0-9]+);?", ts_line.group(1)
+        ):
             message_ts[channel] = ts
         if message_ts:
             result["message_ts"] = message_ts
@@ -77,7 +79,10 @@ _THREAD_MESSAGE_TEMPLATES = [
     "Tag!! {mentions} :index_pointing_at_the_viewer: you've been PICKED.",
     "Congrats {mentions}! You've been volun-told to review this PR. Off you go :nail_care:",
     "Um... hey {mentions}... could you :point_right::point_left: maybe review this? ...no rush! :see_no_evil: ...pls? :homer-disappear:",
-    "The code cries out, {mentions}! A PR of unknown consequence awaits your review.",
+    "The code cries out, {mentions}! A PR of unknown consequence awaits your review :performing_arts:",
+    "Anotha day, anotha dolla :tonysoprano_wink: {mentions} Help me make money make cents by giving me a review!",
+    "Knock-Knock {mentions}! Who's there? :door: It's Pickaroo!",
+    "{mentions} :studio_microphone: Flyyyy me to the moon, let me coooode among the starrrs :musical_note: Let me know what you think of, my PRrrrr :full_moon:",
 ]
 
 
@@ -253,8 +258,6 @@ def is_ooo(status_text: str, status_emoji: str) -> bool:
     if _FUTURE_OOO_PATTERNS.search(combined):
         return False
     return bool(_OOO_PATTERNS.search(combined))
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -460,7 +463,9 @@ def cmd_select_reviewers():
     removed_reviewers = previously_picked_set - existing_set
     exclude_with_removed = exclude_set | removed_reviewers
     if removed_reviewers:
-        print(f"Excluding removed previously-picked reviewers: {sorted(removed_reviewers)}")
+        print(
+            f"Excluding removed previously-picked reviewers: {sorted(removed_reviewers)}"
+        )
 
     candidates = build_candidate_pool(
         include_set,
