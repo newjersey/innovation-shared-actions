@@ -86,7 +86,7 @@ jobs:
           github-token: ${{ steps.generate-token.outputs.token }}
 
   npm-audit:
-    name: Security: npm audit
+    name: Security - npm audit
     uses: ./.github/workflows/npm-audit.yml
     with:
       node-version: ${{ inputs.node-version }}
