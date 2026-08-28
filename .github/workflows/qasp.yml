@@ -16,6 +16,11 @@ on:
         required: false
         default: ".nvmrc"
         type: string
+      test-coverage-command:
+        description: "Command to run for test coverage (default: 'npm run test:coverage')"
+        required: false
+        default: "npm run test:coverage"
+        type: string
     secrets:
       OOI_PULL_REQUEST_APP:
         description: "Private key for the GitHub App (app-id 2454947)"
@@ -29,6 +34,7 @@ jobs:
       - uses: newjersey/innovation-shared-actions/.github/actions/code-coverage@feat/qasp-shared-workflow
         with:
           node-version: ${{ inputs.node-version }}
+          test-coverage-command: ${{ inputs.test-coverage-command }}
 
   code-quality:
     name: Code quality
@@ -61,7 +67,8 @@ jobs:
       - uses: newjersey/innovation-shared-actions/.github/actions/license-check@feat/qasp-shared-workflow
         with:
           node-version: ${{ inputs.node-version }}
-      - uses: newjersey/innovation-shared-actions/.github/actions/readme-check@feat/qasp-shared-workflow
+      - if: ${{ !cancelled() }}
+        uses: newjersey/innovation-shared-actions/.github/actions/readme-check@feat/qasp-shared-workflow
       - if: ${{ !cancelled() }}
         uses: newjersey/innovation-shared-actions/.github/actions/system-diagram-check@feat/qasp-shared-workflow
         with:
