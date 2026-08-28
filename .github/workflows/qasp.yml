@@ -31,7 +31,7 @@ jobs:
           node-version: ${{ inputs.node-version }}
 
   code-quality:
-    name: Code quality checks
+    name: Code quality
     runs-on: ubuntu-latest
     steps:
       - uses: newjersey/innovation-shared-actions/.github/actions/code-quality@feat/qasp-shared-workflow
@@ -39,7 +39,7 @@ jobs:
           node-version: ${{ inputs.node-version }}
 
   accessibility:
-    name: Accessibility checks
+    name: Accessibility
     runs-on: ubuntu-latest
     steps:
       - uses: newjersey/innovation-shared-actions/.github/actions/accessibility@feat/qasp-shared-workflow
@@ -47,7 +47,7 @@ jobs:
           node-version: ${{ inputs.node-version }}
 
   deployment:
-    name: Deployment checks
+    name: Deployment
     runs-on: ubuntu-latest
     steps:
       - uses: newjersey/innovation-shared-actions/.github/actions/deployment-check@feat/qasp-shared-workflow
@@ -55,7 +55,7 @@ jobs:
           check-urls: ${{ inputs.deployment-check-urls }}
 
   documentation:
-    name: Documentation checks (needs human review)
+    name: Documentation (needs human review)
     runs-on: ubuntu-latest
     steps:
       - uses: newjersey/innovation-shared-actions/.github/actions/license-check@feat/qasp-shared-workflow
@@ -68,7 +68,7 @@ jobs:
           diagram-location: ${{ inputs.system-diagram-location }}
 
   security-alerts:
-    name: Security alerts
+    name: Security
     runs-on: ubuntu-latest
     steps:
       - name: Generate GitHub app token
