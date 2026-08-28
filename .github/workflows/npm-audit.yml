@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   npm-audit:
-    name: Critical vulnerabilities
+    name: ${{ inputs.audit-level }} vulnerabilities
     runs-on: ubuntu-latest
     outputs:
       audit_status: ${{ steps.audit-status.outputs.status }}
