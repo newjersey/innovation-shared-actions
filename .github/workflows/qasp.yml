@@ -4,11 +4,11 @@ on:
   workflow_call:
     inputs:
       deployment-check-urls:
-        description: "One URL per line: a staging health-check endpoint, an npm registry URL (unversioned), etc. Only checked for a successful response, not that the latest commit is specifically what's live. See the `deployment-check` action."
+        description: "One URL per line: a staging health-check endpoint, an npm registry URL (unversioned), etc. Only checked for a successful response."
         required: true
         type: string
       system-diagram-location:
-        description: "Filepath or URL pointing at the current system diagram. Not checked for reachability — only confirms someone provided a location, not that it's accurate. See the `system-diagram-check` action."
+        description: "Filepath or URL pointing at the current system diagram. Not checked for reachability — only confirms someone provided a location, not that it's accurate."
         required: true
         type: string
       node-version:
@@ -18,11 +18,12 @@ on:
         type: string
     secrets:
       OOI_PULL_REQUEST_APP:
-        description: "Private key for the GitHub App (app-id 2454947, same app pickaroo.yml uses) with 'Code scanning alerts: read' and 'Secret scanning alerts: read' permissions. Used to mint the token for both security-alerts checks — the default GITHUB_TOKEN cannot access the secret-scanning alerts API no matter what permissions: it's granted."
+        description: "Private key for the GitHub App (app-id 2454947)"
         required: true
 
 jobs:
   code-coverage:
+    name: Code coverage
     runs-on: ubuntu-latest
     steps:
       - uses: newjersey/innovation-shared-actions/.github/actions/code-coverage@feat/qasp-shared-workflow
@@ -30,6 +31,7 @@ jobs:
           node-version: ${{ inputs.node-version }}
 
   code-quality:
+    name: Code quality checks
     runs-on: ubuntu-latest
     steps:
       - uses: newjersey/innovation-shared-actions/.github/actions/code-quality@feat/qasp-shared-workflow
@@ -37,6 +39,7 @@ jobs:
           node-version: ${{ inputs.node-version }}
 
   accessibility:
+    name: Accessibility checks
     runs-on: ubuntu-latest
     steps:
       - uses: newjersey/innovation-shared-actions/.github/actions/accessibility@feat/qasp-shared-workflow
@@ -44,6 +47,7 @@ jobs:
           node-version: ${{ inputs.node-version }}
 
   deployment:
+    name: Deployment checks
     runs-on: ubuntu-latest
     steps:
       - uses: newjersey/innovation-shared-actions/.github/actions/deployment-check@feat/qasp-shared-workflow
@@ -51,15 +55,12 @@ jobs:
           check-urls: ${{ inputs.deployment-check-urls }}
 
   documentation:
+    name: Documentation checks (needs human review)
     runs-on: ubuntu-latest
     steps:
       - uses: newjersey/innovation-shared-actions/.github/actions/license-check@feat/qasp-shared-workflow
         with:
           node-version: ${{ inputs.node-version }}
-
-  documentation-human-review-required:
-    runs-on: ubuntu-latest
-    steps:
       - uses: newjersey/innovation-shared-actions/.github/actions/readme-check@feat/qasp-shared-workflow
       - if: ${{ !cancelled() }}
         uses: newjersey/innovation-shared-actions/.github/actions/system-diagram-check@feat/qasp-shared-workflow
@@ -67,9 +68,10 @@ jobs:
           diagram-location: ${{ inputs.system-diagram-location }}
 
   security-alerts:
+    name: Security alerts
     runs-on: ubuntu-latest
     steps:
-      - name: Generate GitHub App Token
+      - name: Generate GitHub app token
         id: generate-token
         uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
         with:
@@ -84,6 +86,7 @@ jobs:
           github-token: ${{ steps.generate-token.outputs.token }}
 
   npm-audit:
+    name: Security: npm audit
     uses: ./.github/workflows/npm-audit.yml
     with:
       node-version: ${{ inputs.node-version }}
