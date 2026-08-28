@@ -2,14 +2,19 @@ name: "License Check"
 description: >-
   QASP documentation check for dependency licenses. QASP frames
   "documentation" as a judgment call ("use your judgment to pass/fail"), not
-  a hard standard — except licenses, which have two real automated signals:
-  does every dependency (including our own packages) resolve to a known
-  license, and is any dependency GPL-family (GPL/LGPL/AGPL) licensed? Any
-  other OSS license is acceptable. GPL-family licenses fail because their
-  copyleft terms can force this project's own code to be redistributed
-  under GPL — AGPL in particular triggers just from running modified code
-  as a network service, not only from distributing it. Inline-comment
-  quality is skipped entirely as unautomatable.
+  a hard standard — except licenses, which have real automated signals: does
+  every dependency (including our own packages) resolve to a known license,
+  is any dependency GPL-family (GPL/LGPL/AGPL) licensed, and is any
+  third-party dependency marked UNLICENSED (no rights granted to use it)?
+  Any other OSS license is acceptable — this includes "Unlicense" (the
+  public-domain-equivalent license), which is distinct from "UNLICENSED"
+  and never fails. The project's own root package is exempt from the
+  UNLICENSED check, since marking your own private code UNLICENSED is
+  normal and expected. GPL-family licenses fail because their copyleft
+  terms can force this project's own code to be redistributed under GPL —
+  AGPL in particular triggers just from running modified code as a network
+  service, not only from distributing it. Inline-comment quality is
+  skipped entirely as unautomatable.
 inputs:
   node-version:
     description: "Node version to use (e.g., '20') or a file path (e.g., '.nvmrc')"
@@ -43,21 +48,38 @@ runs:
           echo "### Dependency licenses"
           npx --yes license-checker-rseidelsohn@5.0.1 --summary
         } >> "$GITHUB_STEP_SUMMARY"
-    - name: Fail on unresolvable or GPL-family licenses
+    - name: Fail on unresolvable, GPL-family, or third-party UNLICENSED packages
       shell: bash
       run: |
         node -e '
-          const report = JSON.parse(require("fs").readFileSync("license-report.json", "utf8"));
+          const fs = require("fs");
+          const report = JSON.parse(fs.readFileSync("license-report.json", "utf8"));
+          const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          const rootKey = pkg.name + "@" + pkg.version;
           const entries = Object.entries(report);
           const unknown = entries.filter(([, info]) => String(info.licenses).toUpperCase().includes("UNKNOWN"));
           const gpl = entries.filter(([, info]) => String(info.licenses).toUpperCase().includes("GPL"));
+          const unlicensed = entries.filter(([pkgKey, info]) => pkgKey !== rootKey && String(info.licenses).toUpperCase() === "UNLICENSED");
+          const summary = [];
           if (unknown.length > 0) {
-            console.error("::error::Packages with an unresolvable license: " + unknown.map(([pkg]) => pkg).join(", "));
+            console.error("::error::Packages with an unresolvable license: " + unknown.map(([p]) => p).join(", "));
+            summary.push("### License check failures — unresolvable license");
+            summary.push(...unknown.map(([p, info]) => "- `" + p + "` (" + info.licenses + ")"));
           }
           if (gpl.length > 0) {
-            console.error("::error::Packages with a GPL-family license (GPL/LGPL/AGPL): " + gpl.map(([pkg, info]) => pkg + " (" + info.licenses + ")").join(", "));
+            console.error("::error::Packages with a GPL-family license (GPL/LGPL/AGPL): " + gpl.map(([p, info]) => p + " (" + info.licenses + ")").join(", "));
+            summary.push("### License check failures — GPL-family license (GPL/LGPL/AGPL)");
+            summary.push(...gpl.map(([p, info]) => "- `" + p + "` (" + info.licenses + ")"));
           }
-          if (unknown.length > 0 || gpl.length > 0) {
+          if (unlicensed.length > 0) {
+            console.error("::error::Third-party packages marked UNLICENSED (no rights granted to use them): " + unlicensed.map(([p]) => p).join(", "));
+            summary.push("### License check failures — UNLICENSED third-party package");
+            summary.push(...unlicensed.map(([p]) => "- `" + p + "`"));
+          }
+          if (summary.length > 0) {
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, "\n" + summary.join("\n") + "\n");
+          }
+          if (unknown.length > 0 || gpl.length > 0 || unlicensed.length > 0) {
             process.exit(1);
           }
         '
