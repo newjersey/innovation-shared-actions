@@ -1,0 +1,78 @@
+name: QASP
+
+on:
+  workflow_call:
+    inputs:
+      deployment-check-urls:
+        description: "One URL per line: a staging health-check endpoint, an npm registry URL (unversioned), etc. Only checked for a successful response, not that the latest commit is specifically what's live. See the `deployment-check` action."
+        required: true
+        type: string
+      system-diagram-location:
+        description: "Filepath or URL pointing at the current system diagram. Not checked for reachability — only confirms someone provided a location, not that it's accurate. See the `system-diagram-check` action."
+        required: true
+        type: string
+      node-version:
+        description: "Node version to use (e.g., '26') or a file path (e.g., '.nvmrc')"
+        required: false
+        default: ".nvmrc"
+        type: string
+
+jobs:
+  code-coverage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/code-coverage
+        with:
+          node-version: ${{ inputs.node-version }}
+
+  code-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/code-quality
+        with:
+          node-version: ${{ inputs.node-version }}
+
+  accessibility:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/accessibility
+        with:
+          node-version: ${{ inputs.node-version }}
+
+  deployment:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/deployment-check
+        with:
+          check-urls: ${{ inputs.deployment-check-urls }}
+
+  documentation:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/license-check
+        with:
+          node-version: ${{ inputs.node-version }}
+
+  documentation-human-review-required:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./.github/actions/readme-check
+      - uses: ./.github/actions/system-diagram-check
+        with:
+          diagram-location: ${{ inputs.system-diagram-location }}
+
+  security-alerts:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: read
+    steps:
+      - uses: ./.github/actions/code-scanning-alerts
+        with:
+          github-token: ${{ github.token }}
+      - uses: ./.github/actions/secret-scanning-alerts
+        with:
+          github-token: ${{ github.token }}
+
+  npm-audit:
+    uses: ./.github/workflows/npm-audit.yml

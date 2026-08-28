@@ -1,0 +1,23 @@
+name: "System Diagram Check"
+description: >-
+  QASP documentation-human-review-required check. A green check here means
+  a system diagram location was provided — it does not mean a human has
+  reviewed it for accuracy/currency.
+inputs:
+  diagram-location:
+    description: "Filepath or URL pointing at the current system diagram."
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: System diagram location provided (requires human review)
+      shell: bash
+      env:
+        DIAGRAM_LOCATION: ${{ inputs.diagram-location }}
+      run: |
+        if [ -z "$DIAGRAM_LOCATION" ]; then
+          echo "::error::No diagram-location configured. Provide a filepath or URL pointing at the current system diagram."
+          exit 1
+        fi
+        echo "System diagram location: $DIAGRAM_LOCATION — still needs human review for accuracy/currency."

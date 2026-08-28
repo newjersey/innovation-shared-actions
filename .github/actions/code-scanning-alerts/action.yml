@@ -1,0 +1,27 @@
+name: "Code Scanning Alerts"
+description: >-
+  QASP security check. Covers what npm audit can't: vulnerabilities in our
+  own code (not just dependencies). Querying open alerts also catches "code
+  scanning isn't enabled" for free — the API errors instead of returning an
+  empty list when the scanner is off. Requires the caller to grant
+  `security-events: read`.
+inputs:
+  github-token:
+    description: "GitHub token with security-events:read permission"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Check for open code-scanning alerts (medium/high severity)
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        alerts=$(gh api "repos/${{ github.repository }}/code-scanning/alerts" --jq '[.[] | select(.state == "open") | select(.rule.security_severity_level == "medium" or .rule.security_severity_level == "high")]')
+        count=$(printf '%s' "$alerts" | jq 'length')
+        printf '%s' "$alerts" | jq -r '.[] | "- " + .rule.id + " (" + .rule.security_severity_level + "): " + .html_url'
+        if [ "$count" -gt 0 ]; then
+          echo "::error::$count open medium/high severity code-scanning alert(s) found."
+          exit 1
+        fi

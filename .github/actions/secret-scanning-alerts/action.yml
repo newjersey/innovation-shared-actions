@@ -1,0 +1,25 @@
+name: "Secret Scanning Alerts"
+description: >-
+  QASP security check. Any open secret-scanning alert fails — unlike
+  vulnerabilities, a leaked credential doesn't have an acceptable
+  low-severity tier. Requires the caller to grant `security-events: read`.
+inputs:
+  github-token:
+    description: "GitHub token with security-events:read permission"
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Check for open secret-scanning alerts
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.github-token }}
+      run: |
+        alerts=$(gh api "repos/${{ github.repository }}/secret-scanning/alerts" --jq '[.[] | select(.state == "open")]')
+        count=$(printf '%s' "$alerts" | jq 'length')
+        printf '%s' "$alerts" | jq -r '.[] | "- " + .secret_type + ": " + .html_url'
+        if [ "$count" -gt 0 ]; then
+          echo "::error::$count open secret-scanning alert(s) found."
+          exit 1
+        fi
