@@ -3,11 +3,13 @@ description: >-
   QASP security check. Covers what npm audit can't: vulnerabilities in our
   own code (not just dependencies). Querying open alerts also catches "code
   scanning isn't enabled" for free — the API errors instead of returning an
-  empty list when the scanner is off. Requires the caller to grant
-  `security-events: read`.
+  empty list when the scanner is off. Requires a token with read access to
+  code scanning alerts (`security-events: read` for the default
+  GITHUB_TOKEN, or "Code scanning alerts: read" for a GitHub App
+  installation token or PAT).
 inputs:
   github-token:
-    description: "GitHub token with security-events:read permission"
+    description: "Token with read access to code scanning alerts (GITHUB_TOKEN with security-events:read, or a GitHub App/PAT with 'Code scanning alerts: read')"
     required: true
 
 runs:

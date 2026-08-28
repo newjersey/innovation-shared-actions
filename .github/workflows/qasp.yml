@@ -16,6 +16,10 @@ on:
         required: false
         default: ".nvmrc"
         type: string
+    secrets:
+      OOI_PULL_REQUEST_APP:
+        description: "Private key for the GitHub App (app-id 2454947, same app pickaroo.yml uses) with 'Code scanning alerts: read' and 'Secret scanning alerts: read' permissions. Used to mint the token for both security-alerts checks — the default GITHUB_TOKEN cannot access the secret-scanning alerts API no matter what permissions: it's granted."
+        required: true
 
 jobs:
   code-coverage:
@@ -63,16 +67,19 @@ jobs:
 
   security-alerts:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      security-events: read
     steps:
+      - name: Generate GitHub App Token
+        id: generate-token
+        uses: actions/create-github-app-token@29824e69f54612133e76f7eaac726eef6c875baf # v2.2.1
+        with:
+          app-id: "2454947"
+          private-key: ${{ secrets.OOI_PULL_REQUEST_APP }}
       - uses: newjersey/innovation-shared-actions/.github/actions/code-scanning-alerts@feat/qasp-shared-workflow
         with:
-          github-token: ${{ github.token }}
+          github-token: ${{ steps.generate-token.outputs.token }}
       - uses: newjersey/innovation-shared-actions/.github/actions/secret-scanning-alerts@feat/qasp-shared-workflow
         with:
-          github-token: ${{ github.token }}
+          github-token: ${{ steps.generate-token.outputs.token }}
 
   npm-audit:
     uses: ./.github/workflows/npm-audit.yml
