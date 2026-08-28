@@ -9,7 +9,7 @@ description: >-
   determination is a human decision, not an inferred one.
 inputs:
   node-version:
-    description: "Node version to use (e.g., '20') or a file path (e.g., '.nvmrc')"
+    description: "Node version to use (e.g., '26') or a file path (e.g., '.nvmrc')"
     required: false
     default: ".nvmrc"
 
