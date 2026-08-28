@@ -21,43 +21,43 @@ jobs:
   code-coverage:
     runs-on: ubuntu-latest
     steps:
-      - uses: newjersey/innovation-shared-actions/.github/actions/code-coverage@main
+      - uses: newjersey/innovation-shared-actions/.github/actions/code-coverage@feat/qasp-shared-workflow
         with:
           node-version: ${{ inputs.node-version }}
 
   code-quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: newjersey/innovation-shared-actions/.github/actions/code-quality@main
+      - uses: newjersey/innovation-shared-actions/.github/actions/code-quality@feat/qasp-shared-workflow
         with:
           node-version: ${{ inputs.node-version }}
 
   accessibility:
     runs-on: ubuntu-latest
     steps:
-      - uses: newjersey/innovation-shared-actions/.github/actions/accessibility@main
+      - uses: newjersey/innovation-shared-actions/.github/actions/accessibility@feat/qasp-shared-workflow
         with:
           node-version: ${{ inputs.node-version }}
 
   deployment:
     runs-on: ubuntu-latest
     steps:
-      - uses: newjersey/innovation-shared-actions/.github/actions/deployment-check@main
+      - uses: newjersey/innovation-shared-actions/.github/actions/deployment-check@feat/qasp-shared-workflow
         with:
           check-urls: ${{ inputs.deployment-check-urls }}
 
   documentation:
     runs-on: ubuntu-latest
     steps:
-      - uses: newjersey/innovation-shared-actions/.github/actions/license-check@main
+      - uses: newjersey/innovation-shared-actions/.github/actions/license-check@feat/qasp-shared-workflow
         with:
           node-version: ${{ inputs.node-version }}
 
   documentation-human-review-required:
     runs-on: ubuntu-latest
     steps:
-      - uses: newjersey/innovation-shared-actions/.github/actions/readme-check@main
-      - uses: newjersey/innovation-shared-actions/.github/actions/system-diagram-check@main
+      - uses: newjersey/innovation-shared-actions/.github/actions/readme-check@feat/qasp-shared-workflow
+      - uses: newjersey/innovation-shared-actions/.github/actions/system-diagram-check@feat/qasp-shared-workflow
         with:
           diagram-location: ${{ inputs.system-diagram-location }}
 
@@ -67,10 +67,10 @@ jobs:
       contents: read
       security-events: read
     steps:
-      - uses: newjersey/innovation-shared-actions/.github/actions/code-scanning-alerts@main
+      - uses: newjersey/innovation-shared-actions/.github/actions/code-scanning-alerts@feat/qasp-shared-workflow
         with:
           github-token: ${{ github.token }}
-      - uses: newjersey/innovation-shared-actions/.github/actions/secret-scanning-alerts@main
+      - uses: newjersey/innovation-shared-actions/.github/actions/secret-scanning-alerts@feat/qasp-shared-workflow
         with:
           github-token: ${{ github.token }}
 
