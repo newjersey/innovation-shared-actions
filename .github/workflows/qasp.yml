@@ -21,43 +21,43 @@ jobs:
   code-coverage:
     runs-on: ubuntu-latest
     steps:
-      - uses: ./.github/actions/code-coverage
+      - uses: newjersey/innovation-shared-actions/.github/actions/code-coverage@main
         with:
           node-version: ${{ inputs.node-version }}
 
   code-quality:
     runs-on: ubuntu-latest
     steps:
-      - uses: ./.github/actions/code-quality
+      - uses: newjersey/innovation-shared-actions/.github/actions/code-quality@main
         with:
           node-version: ${{ inputs.node-version }}
 
   accessibility:
     runs-on: ubuntu-latest
     steps:
-      - uses: ./.github/actions/accessibility
+      - uses: newjersey/innovation-shared-actions/.github/actions/accessibility@main
         with:
           node-version: ${{ inputs.node-version }}
 
   deployment:
     runs-on: ubuntu-latest
     steps:
-      - uses: ./.github/actions/deployment-check
+      - uses: newjersey/innovation-shared-actions/.github/actions/deployment-check@main
         with:
           check-urls: ${{ inputs.deployment-check-urls }}
 
   documentation:
     runs-on: ubuntu-latest
     steps:
-      - uses: ./.github/actions/license-check
+      - uses: newjersey/innovation-shared-actions/.github/actions/license-check@main
         with:
           node-version: ${{ inputs.node-version }}
 
   documentation-human-review-required:
     runs-on: ubuntu-latest
     steps:
-      - uses: ./.github/actions/readme-check
-      - uses: ./.github/actions/system-diagram-check
+      - uses: newjersey/innovation-shared-actions/.github/actions/readme-check@main
+      - uses: newjersey/innovation-shared-actions/.github/actions/system-diagram-check@main
         with:
           diagram-location: ${{ inputs.system-diagram-location }}
 
@@ -67,10 +67,10 @@ jobs:
       contents: read
       security-events: read
     steps:
-      - uses: ./.github/actions/code-scanning-alerts
+      - uses: newjersey/innovation-shared-actions/.github/actions/code-scanning-alerts@main
         with:
           github-token: ${{ github.token }}
-      - uses: ./.github/actions/secret-scanning-alerts
+      - uses: newjersey/innovation-shared-actions/.github/actions/secret-scanning-alerts@main
         with:
           github-token: ${{ github.token }}
 
