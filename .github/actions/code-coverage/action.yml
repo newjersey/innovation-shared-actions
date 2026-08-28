@@ -7,6 +7,10 @@ inputs:
     description: "Node version to use (e.g., '20') or a file path (e.g., '.nvmrc')"
     required: false
     default: ".nvmrc"
+  test-coverage-command:
+    description: "Command to run for test coverage (default: 'npm run test:coverage')"
+    required: false
+    default: "npm run test:coverage"
 
 runs:
   using: "composite"
@@ -32,4 +36,4 @@ runs:
       run: npm run build
     - name: Run coverage
       shell: bash
-      run: npm run test:coverage
+      run: ${{ inputs.test-coverage-command }}
