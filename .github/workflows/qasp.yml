@@ -76,3 +76,6 @@ jobs:
 
   npm-audit:
     uses: ./.github/workflows/npm-audit.yml
+    with:
+      node-version: ${{ inputs.node-version }}
+      audit-level: "high"
