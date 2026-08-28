@@ -2,11 +2,14 @@ name: "License Check"
 description: >-
   QASP documentation check for dependency licenses. QASP frames
   "documentation" as a judgment call ("use your judgment to pass/fail"), not
-  a hard standard — except licenses, which have a real automated signal:
+  a hard standard — except licenses, which have two real automated signals:
   does every dependency (including our own packages) resolve to a known
-  license? Any OSS license is acceptable here, so this only fails on
-  unresolvable/unknown licenses, not on license type. Inline-comment quality
-  is skipped entirely as unautomatable.
+  license, and is any dependency GPL-family (GPL/LGPL/AGPL) licensed? Any
+  other OSS license is acceptable. GPL-family licenses fail because their
+  copyleft terms can force this project's own code to be redistributed
+  under GPL — AGPL in particular triggers just from running modified code
+  as a network service, not only from distributing it. Inline-comment
+  quality is skipped entirely as unautomatable.
 inputs:
   node-version:
     description: "Node version to use (e.g., '20') or a file path (e.g., '.nvmrc')"
@@ -35,19 +38,26 @@ runs:
     - name: Generate dependency license report
       shell: bash
       run: |
-        npx --yes license-checker-rseidelsohn@5.0.1 --unknown --json --out license-report.json
+        npx --yes license-checker-rseidelsohn@5.0.1 --json --out license-report.json
         {
           echo "### Dependency licenses"
-          npx --yes license-checker-rseidelsohn@5.0.1 --unknown --summary
+          npx --yes license-checker-rseidelsohn@5.0.1 --summary
         } >> "$GITHUB_STEP_SUMMARY"
-    - name: Fail on unresolvable licenses
+    - name: Fail on unresolvable or GPL-family licenses
       shell: bash
       run: |
         node -e '
           const report = JSON.parse(require("fs").readFileSync("license-report.json", "utf8"));
-          const unknown = Object.entries(report).filter(([, info]) => String(info.licenses).toUpperCase().includes("UNKNOWN"));
+          const entries = Object.entries(report);
+          const unknown = entries.filter(([, info]) => String(info.licenses).toUpperCase().includes("UNKNOWN"));
+          const gpl = entries.filter(([, info]) => String(info.licenses).toUpperCase().includes("GPL"));
           if (unknown.length > 0) {
             console.error("::error::Packages with an unresolvable license: " + unknown.map(([pkg]) => pkg).join(", "));
+          }
+          if (gpl.length > 0) {
+            console.error("::error::Packages with a GPL-family license (GPL/LGPL/AGPL): " + gpl.map(([pkg, info]) => pkg + " (" + info.licenses + ")").join(", "));
+          }
+          if (unknown.length > 0 || gpl.length > 0) {
             process.exit(1);
           }
         '
