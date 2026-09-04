@@ -1,0 +1,95 @@
+name: "npm audit"
+description: "Run npm or pnpm audit and fail on vulnerabilities at or above a given severity threshold"
+inputs:
+  node-version:
+    description: "Node version to use (e.g., '26') or a file path (e.g., '.nvmrc')"
+    required: false
+    default: ".nvmrc"
+  audit-level:
+    description: "Audit severity threshold"
+    required: false
+    default: "critical"
+
+outputs:
+  audit_status:
+    description: "Outcome of the audit: 'success', 'failure', or 'skipped' (no lockfile)"
+    value: ${{ steps.audit-status.outputs.status }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Determine Node version
+      id: node-version
+      shell: bash
+      run: |
+        if [ -f "${{ inputs.node-version }}" ]; then
+          # It's a file, read version from file
+          NODE_VERSION=$(cat "${{ inputs.node-version }}" | tr -d '[:space:]')
+          echo "Node version read from file: $NODE_VERSION"
+        else
+          # Treat as literal version
+          NODE_VERSION="${{ inputs.node-version }}"
+          echo "Node version provided directly: $NODE_VERSION"
+        fi
+        echo "NODE_VERSION=$NODE_VERSION" >> $GITHUB_ENV
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v7
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: '' # disable auto-caching because npm vs. pnpm
+
+    - name: Detect package manager
+      id: package-manager
+      shell: bash
+      run: |
+        if [ -f pnpm-lock.yaml ]; then
+          PACKAGE_MANAGER="pnpm"
+        elif [ -f package-lock.json ]; then
+          PACKAGE_MANAGER="npm"
+        else
+          PACKAGE_MANAGER="none"
+          echo "No package-lock.json or pnpm-lock.yaml found. Skipping dependency installation and audit."
+        fi
+        echo "PACKAGE_MANAGER=$PACKAGE_MANAGER" >> $GITHUB_ENV
+
+    - name: Install pnpm
+      if: env.PACKAGE_MANAGER == 'pnpm'
+      shell: bash
+      run: npm install -g pnpm
+
+    - name: Install dependencies
+      if: env.PACKAGE_MANAGER != 'none'
+      shell: bash
+      run: |
+        if [ "$PACKAGE_MANAGER" = "pnpm" ]; then
+          pnpm install --frozen-lockfile
+        else
+          npm ci
+        fi
+
+    - name: Run audit (fail on ${{ inputs.audit-level }})
+      id: audit
+      if: env.PACKAGE_MANAGER != 'none'
+      shell: bash
+      run: |
+        if [ "$PACKAGE_MANAGER" = "pnpm" ]; then
+          pnpm audit --audit-level=${{ inputs.audit-level }}
+        else
+          npm audit --audit-level=${{ inputs.audit-level }}
+        fi
+
+    - name: Set audit status output
+      id: audit-status
+      if: always()
+      shell: bash
+      run: |
+        if [ "$PACKAGE_MANAGER" = "none" ]; then
+          STATUS="skipped"
+        elif [ "${{ steps.audit.outcome }}" = "failure" ]; then
+          STATUS="failure"
+        else
+          STATUS="success"
+        fi
+
+        echo "status=$STATUS" >> "$GITHUB_OUTPUT"
