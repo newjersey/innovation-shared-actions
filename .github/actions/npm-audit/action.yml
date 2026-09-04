@@ -1,0 +1,74 @@
+name: "npm audit"
+description: "Run npm audit and fail on vulnerabilities at or above a given severity threshold"
+inputs:
+  node-version:
+    description: "Node version to use (e.g., '26') or a file path (e.g., '.nvmrc')"
+    required: false
+    default: ".nvmrc"
+  audit-level:
+    description: "npm audit severity threshold"
+    required: false
+    default: "critical"
+
+outputs:
+  audit_status:
+    description: "Outcome of the audit: 'success', 'failure', or 'skipped' (no package-lock.json)"
+    value: ${{ steps.audit-status.outputs.status }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Determine Node version
+      id: node-version
+      shell: bash
+      run: |
+        if [ -f "${{ inputs.node-version }}" ]; then
+          # It's a file, read version from file
+          NODE_VERSION=$(cat "${{ inputs.node-version }}" | tr -d '[:space:]')
+          echo "Node version read from file: $NODE_VERSION"
+        else
+          # Treat as literal version
+          NODE_VERSION="${{ inputs.node-version }}"
+          echo "Node version provided directly: $NODE_VERSION"
+        fi
+        echo "NODE_VERSION=$NODE_VERSION" >> $GITHUB_ENV
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v5
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+        cache: '' # disable auto-caching because npm vs. pnpm
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        if [ -f package-lock.json ]; then
+          npm ci
+        else
+          echo "No package-lock.json found. Skipping dependency installation."
+        fi
+
+    - name: Run npm audit (fail on critical)
+      id: audit
+      shell: bash
+      run: |
+        if [ -f package-lock.json ]; then
+          npm audit --audit-level=${{ inputs.audit-level }}
+        else
+          echo "No package-lock.json found. Skipping npm audit."
+        fi
+
+    - name: Set audit status output
+      id: audit-status
+      if: always()
+      shell: bash
+      run: |
+        if [ ! -f package-lock.json ]; then
+          STATUS="skipped"
+        elif [ "${{ steps.audit.outcome }}" = "failure" ]; then
+          STATUS="failure"
+        else
+          STATUS="success"
+        fi
+
+        echo "status=$STATUS" >> "$GITHUB_OUTPUT"
