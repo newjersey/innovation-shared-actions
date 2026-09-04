@@ -91,10 +91,10 @@ jobs:
         uses: newjersey/innovation-shared-actions/.github/actions/secret-scanning-alerts@feat/qasp-shared-workflow
         with:
           github-token: ${{ steps.generate-token.outputs.token }}
-
-  npm-audit:
-    name: Security - npm audit
-    uses: ./.github/workflows/npm-audit.yml
-    with:
-      node-version: ${{ inputs.node-version }}
-      audit-level: "high"
+      - if: ${{ !cancelled() }}
+        uses: actions/checkout@v7
+      - if: ${{ !cancelled() }}
+        uses: newjersey/innovation-shared-actions/.github/actions/npm-audit@feat/qasp-shared-workflow
+        with:
+          node-version: ${{ inputs.node-version }}
+          audit-level: "critical"
