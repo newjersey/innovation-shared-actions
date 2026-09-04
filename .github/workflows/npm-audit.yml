@@ -28,9 +28,17 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v7
 
+      - name: Checkout npm-audit action
+        uses: actions/checkout@v7
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          path: .npm-audit-action
+          sparse-checkout: .github/actions/npm-audit
+
       - name: Run npm audit
         id: audit-status
-        uses: ./.github/actions/npm-audit
+        uses: ./.npm-audit-action/.github/actions/npm-audit
         with:
           node-version: ${{ inputs.node-version }}
           audit-level: ${{ inputs.audit-level }}
