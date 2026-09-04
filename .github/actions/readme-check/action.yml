@@ -1,4 +1,4 @@
-name: "README Check"
+name: "README check"
 description: >-
   QASP documentation-human-review-required check. A green check here means
   a README.md with content exists — it does not mean a human has reviewed

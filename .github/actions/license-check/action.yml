@@ -1,20 +1,6 @@
-name: "License Check"
+name: "License check"
 description: >-
-  QASP documentation check for dependency licenses. QASP frames
-  "documentation" as a judgment call ("use your judgment to pass/fail"), not
-  a hard standard — except licenses, which have real automated signals: does
-  every dependency (including our own packages) resolve to a known license,
-  is any dependency GPL-family (GPL/LGPL/AGPL) licensed, and is any
-  third-party dependency marked UNLICENSED (no rights granted to use it)?
-  Any other OSS license is acceptable — this includes "Unlicense" (the
-  public-domain-equivalent license), which is distinct from "UNLICENSED"
-  and never fails. The project's own root package is exempt from the
-  UNLICENSED check, since marking your own private code UNLICENSED is
-  normal and expected. GPL-family licenses fail because their copyleft
-  terms can force this project's own code to be redistributed under GPL —
-  AGPL in particular triggers just from running modified code as a network
-  service, not only from distributing it. Inline-comment quality is
-  skipped entirely as unautomatable.
+  QASP documentation check for dependency licenses.
 inputs:
   node-version:
     description: "Node version to use (e.g., '26') or a file path (e.g., '.nvmrc')"
@@ -85,7 +71,7 @@ runs:
         '
     - if: ${{ !cancelled() }}
       name: Upload license report
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: license-report
         path: license-report.json

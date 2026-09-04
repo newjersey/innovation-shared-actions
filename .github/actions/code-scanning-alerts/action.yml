@@ -1,4 +1,4 @@
-name: "Code Scanning Alerts"
+name: "Code scanning alerts"
 description: >-
   QASP security check. Covers what npm audit can't: vulnerabilities in our
   own code (not just dependencies). Querying open alerts also catches "code
@@ -9,7 +9,7 @@ description: >-
   installation token or PAT).
 inputs:
   github-token:
-    description: "Token with read access to code scanning alerts (GITHUB_TOKEN with security-events:read, or a GitHub App/PAT with 'Code scanning alerts: read')"
+    description: "Token with read access to code scanning alerts"
     required: true
 
 runs:

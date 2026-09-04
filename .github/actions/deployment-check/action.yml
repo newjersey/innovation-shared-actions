@@ -1,4 +1,4 @@
-name: "Deployment Check"
+name: "Deployment check"
 description: >-
   QASP deployment check. Verifies a deployment target is reachable rather
   than trying to know how any given project deploys (Amplify, ECS,

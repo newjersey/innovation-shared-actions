@@ -1,4 +1,4 @@
-name: "System Diagram Check"
+name: "System diagram check"
 description: >-
   QASP documentation-human-review-required check. A green check here means
   a system diagram location was provided — it does not mean a human has

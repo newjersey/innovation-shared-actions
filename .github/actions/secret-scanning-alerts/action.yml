@@ -1,14 +1,11 @@
-name: "Secret Scanning Alerts"
+name: "Secret scanning alerts"
 description: >-
   QASP security check. Any open secret-scanning alert fails — unlike
   vulnerabilities, a leaked credential doesn't have an acceptable
-  low-severity tier. The default GITHUB_TOKEN cannot access the
-  secret-scanning alerts API regardless of granted permissions — pass a
-  personal access token or GitHub App installation token with
-  "Secret scanning alerts: read" access instead.
+  low-severity tier.
 inputs:
   github-token:
-    description: "Token with 'Secret scanning alerts: read' access (a PAT or GitHub App installation token) — NOT the default GITHUB_TOKEN, which cannot access this API"
+    description: "Token with 'Secret scanning alerts'"
     required: true
 
 runs:
