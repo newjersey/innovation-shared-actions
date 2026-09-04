@@ -1,18 +1,18 @@
 name: "npm audit"
-description: "Run npm audit and fail on vulnerabilities at or above a given severity threshold"
+description: "Run npm or pnpm audit and fail on vulnerabilities at or above a given severity threshold"
 inputs:
   node-version:
     description: "Node version to use (e.g., '26') or a file path (e.g., '.nvmrc')"
     required: false
     default: ".nvmrc"
   audit-level:
-    description: "npm audit severity threshold"
+    description: "Audit severity threshold"
     required: false
     default: "critical"
 
 outputs:
   audit_status:
-    description: "Outcome of the audit: 'success', 'failure', or 'skipped' (no package-lock.json)"
+    description: "Outcome of the audit: 'success', 'failure', or 'skipped' (no lockfile)"
     value: ${{ steps.audit-status.outputs.status }}
 
 runs:
@@ -34,28 +34,49 @@ runs:
         echo "NODE_VERSION=$NODE_VERSION" >> $GITHUB_ENV
 
     - name: Set up Node.js
-      uses: actions/setup-node@v5
+      uses: actions/setup-node@v7
       with:
         node-version: ${{ env.NODE_VERSION }}
         cache: '' # disable auto-caching because npm vs. pnpm
 
-    - name: Install dependencies
+    - name: Detect package manager
+      id: package-manager
       shell: bash
       run: |
-        if [ -f package-lock.json ]; then
-          npm ci
+        if [ -f pnpm-lock.yaml ]; then
+          PACKAGE_MANAGER="pnpm"
+        elif [ -f package-lock.json ]; then
+          PACKAGE_MANAGER="npm"
         else
-          echo "No package-lock.json found. Skipping dependency installation."
+          PACKAGE_MANAGER="none"
+          echo "No package-lock.json or pnpm-lock.yaml found. Skipping dependency installation and audit."
+        fi
+        echo "PACKAGE_MANAGER=$PACKAGE_MANAGER" >> $GITHUB_ENV
+
+    - name: Install pnpm
+      if: env.PACKAGE_MANAGER == 'pnpm'
+      shell: bash
+      run: npm install -g pnpm
+
+    - name: Install dependencies
+      if: env.PACKAGE_MANAGER != 'none'
+      shell: bash
+      run: |
+        if [ "$PACKAGE_MANAGER" = "pnpm" ]; then
+          pnpm install --frozen-lockfile
+        else
+          npm ci
         fi
 
-    - name: Run npm audit (fail on critical)
+    - name: Run audit (fail on ${{ inputs.audit-level }})
       id: audit
+      if: env.PACKAGE_MANAGER != 'none'
       shell: bash
       run: |
-        if [ -f package-lock.json ]; then
-          npm audit --audit-level=${{ inputs.audit-level }}
+        if [ "$PACKAGE_MANAGER" = "pnpm" ]; then
+          pnpm audit --audit-level=${{ inputs.audit-level }}
         else
-          echo "No package-lock.json found. Skipping npm audit."
+          npm audit --audit-level=${{ inputs.audit-level }}
         fi
 
     - name: Set audit status output
@@ -63,7 +84,7 @@ runs:
       if: always()
       shell: bash
       run: |
-        if [ ! -f package-lock.json ]; then
+        if [ "$PACKAGE_MANAGER" = "none" ]; then
           STATUS="skipped"
         elif [ "${{ steps.audit.outcome }}" = "failure" ]; then
           STATUS="failure"
