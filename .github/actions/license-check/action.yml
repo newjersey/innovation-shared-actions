@@ -1,0 +1,77 @@
+name: "License check"
+description: >-
+  QASP documentation check for dependency licenses.
+inputs:
+  node-version:
+    description: "Node version to use (e.g., '26') or a file path (e.g., '.nvmrc')"
+    required: false
+    default: ".nvmrc"
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/checkout@v7
+    - name: Determine Node version
+      shell: bash
+      run: |
+        if [ -f "${{ inputs.node-version }}" ]; then
+          NODE_VERSION=$(cat "${{ inputs.node-version }}" | tr -d '[:space:]')
+        else
+          NODE_VERSION="${{ inputs.node-version }}"
+        fi
+        echo "NODE_VERSION=$NODE_VERSION" >> "$GITHUB_ENV"
+    - uses: actions/setup-node@v7
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+    - name: Install dependencies
+      shell: bash
+      run: npm ci
+    - name: Generate dependency license report
+      shell: bash
+      run: |
+        npx --yes license-checker-rseidelsohn@5.0.1 --json --out license-report.json
+        {
+          echo "### Dependency licenses"
+          npx --yes license-checker-rseidelsohn@5.0.1 --summary
+        } >> "$GITHUB_STEP_SUMMARY"
+    - name: Fail on unresolvable, GPL-family, or third-party UNLICENSED packages
+      shell: bash
+      run: |
+        node -e '
+          const fs = require("fs");
+          const report = JSON.parse(fs.readFileSync("license-report.json", "utf8"));
+          const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+          const rootKey = pkg.name + "@" + pkg.version;
+          const entries = Object.entries(report);
+          const unknown = entries.filter(([, info]) => String(info.licenses).toUpperCase().includes("UNKNOWN"));
+          const gpl = entries.filter(([, info]) => String(info.licenses).toUpperCase().includes("GPL"));
+          const unlicensed = entries.filter(([pkgKey, info]) => pkgKey !== rootKey && String(info.licenses).toUpperCase() === "UNLICENSED");
+          const summary = [];
+          if (unknown.length > 0) {
+            console.error("::error::Packages with an unresolvable license: " + unknown.map(([p]) => p).join(", "));
+            summary.push("### License check failures — unresolvable license");
+            summary.push(...unknown.map(([p, info]) => "- `" + p + "` (" + info.licenses + ")"));
+          }
+          if (gpl.length > 0) {
+            console.error("::error::Packages with a GPL-family license (GPL/LGPL/AGPL): " + gpl.map(([p, info]) => p + " (" + info.licenses + ")").join(", "));
+            summary.push("### License check failures — GPL-family license (GPL/LGPL/AGPL)");
+            summary.push(...gpl.map(([p, info]) => "- `" + p + "` (" + info.licenses + ")"));
+          }
+          if (unlicensed.length > 0) {
+            console.error("::error::Third-party packages marked UNLICENSED (no rights granted to use them): " + unlicensed.map(([p]) => p).join(", "));
+            summary.push("### License check failures — UNLICENSED third-party package");
+            summary.push(...unlicensed.map(([p]) => "- `" + p + "`"));
+          }
+          if (summary.length > 0) {
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, "\n" + summary.join("\n") + "\n");
+          }
+          if (unknown.length > 0 || gpl.length > 0 || unlicensed.length > 0) {
+            process.exit(1);
+          }
+        '
+    - if: ${{ !cancelled() }}
+      name: Upload license report
+      uses: actions/upload-artifact@v7
+      with:
+        name: license-report
+        path: license-report.json

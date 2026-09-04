@@ -1,0 +1,100 @@
+name: QASP
+
+on:
+  workflow_call:
+    inputs:
+      deployment-check-urls:
+        description: "One URL per line: a staging health-check endpoint, an npm registry URL (unversioned), etc. Only checked for a successful response."
+        required: true
+        type: string
+      system-diagram-location:
+        description: "Filepath or URL pointing at the current system diagram. Not checked for reachability — only confirms someone provided a location, not that it's accurate."
+        required: true
+        type: string
+      node-version:
+        description: "Node version to use (e.g., '26') or a file path (e.g., '.nvmrc')"
+        required: false
+        default: ".nvmrc"
+        type: string
+      test-coverage-command:
+        description: "Command to run for test coverage (default: 'npm run test:coverage')"
+        required: false
+        default: "npm run test:coverage"
+        type: string
+    secrets:
+      OOI_PULL_REQUEST_APP:
+        description: "Private key for the GitHub App (app-id 2454947)"
+        required: true
+
+jobs:
+  code-coverage:
+    name: Code coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: newjersey/innovation-shared-actions/.github/actions/code-coverage@feat/qasp-shared-workflow
+        with:
+          node-version: ${{ inputs.node-version }}
+          test-coverage-command: ${{ inputs.test-coverage-command }}
+
+  code-quality:
+    name: Code quality
+    runs-on: ubuntu-latest
+    steps:
+      - uses: newjersey/innovation-shared-actions/.github/actions/code-quality@feat/qasp-shared-workflow
+        with:
+          node-version: ${{ inputs.node-version }}
+
+  accessibility:
+    name: Accessibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: newjersey/innovation-shared-actions/.github/actions/accessibility@feat/qasp-shared-workflow
+        with:
+          node-version: ${{ inputs.node-version }}
+
+  deployment:
+    name: Deployment
+    runs-on: ubuntu-latest
+    steps:
+      - uses: newjersey/innovation-shared-actions/.github/actions/deployment-check@feat/qasp-shared-workflow
+        with:
+          check-urls: ${{ inputs.deployment-check-urls }}
+
+  documentation:
+    name: Documentation (needs human review)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: newjersey/innovation-shared-actions/.github/actions/license-check@feat/qasp-shared-workflow
+        with:
+          node-version: ${{ inputs.node-version }}
+      - if: ${{ !cancelled() }}
+        uses: newjersey/innovation-shared-actions/.github/actions/readme-check@feat/qasp-shared-workflow
+      - if: ${{ !cancelled() }}
+        uses: newjersey/innovation-shared-actions/.github/actions/system-diagram-check@feat/qasp-shared-workflow
+        with:
+          diagram-location: ${{ inputs.system-diagram-location }}
+
+  security-alerts:
+    name: Security
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate GitHub app token
+        id: generate-token
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: "2454947"
+          private-key: ${{ secrets.OOI_PULL_REQUEST_APP }}
+      - uses: newjersey/innovation-shared-actions/.github/actions/code-scanning-alerts@feat/qasp-shared-workflow
+        with:
+          github-token: ${{ steps.generate-token.outputs.token }}
+      - if: ${{ !cancelled() && steps.generate-token.outcome == 'success' }}
+        uses: newjersey/innovation-shared-actions/.github/actions/secret-scanning-alerts@feat/qasp-shared-workflow
+        with:
+          github-token: ${{ steps.generate-token.outputs.token }}
+      - if: ${{ !cancelled() }}
+        uses: actions/checkout@v7
+      - if: ${{ !cancelled() }}
+        uses: newjersey/innovation-shared-actions/.github/actions/npm-audit@feat/qasp-shared-workflow
+        with:
+          node-version: ${{ inputs.node-version }}
+          audit-level: "critical"

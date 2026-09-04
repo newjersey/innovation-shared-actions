@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       node-version:
-        description: "Node version to use (e.g., '20') or a file path (e.g., '.nvmrc')"
+        description: "Node version to use (e.g., '26') or a file path (e.g., '.nvmrc')"
         required: false
         default: ".nvmrc"
         type: string
@@ -19,7 +19,7 @@ permissions:
 
 jobs:
   npm-audit:
-    name: Critical vulnerabilities
+    name: ${{ inputs.audit-level }} vulnerabilities
     runs-on: ubuntu-latest
     outputs:
       audit_status: ${{ steps.audit-status.outputs.audit_status }}

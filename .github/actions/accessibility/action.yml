@@ -1,0 +1,40 @@
+name: "Accessibility"
+description: >-
+  QASP accessibility check. Contract: a `test:a11y` script must exist in
+  package.json. There's no reliable way to auto-detect "this project has no
+  UI" across arbitrary codebases, so this action doesn't try — a missing
+  script fails loudly instead of silently passing. Projects with no UI
+  should still add the script as an explicit, visible no-op (e.g.
+  "test:a11y": "echo 'No UI in this project' && exit 0") so the N/A
+  determination is a human decision, not an inferred one.
+inputs:
+  node-version:
+    description: "Node version to use (e.g., '26') or a file path (e.g., '.nvmrc')"
+    required: false
+    default: ".nvmrc"
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/checkout@v7
+    - name: Determine Node version
+      shell: bash
+      run: |
+        if [ -f "${{ inputs.node-version }}" ]; then
+          NODE_VERSION=$(cat "${{ inputs.node-version }}" | tr -d '[:space:]')
+        else
+          NODE_VERSION="${{ inputs.node-version }}"
+        fi
+        echo "NODE_VERSION=$NODE_VERSION" >> "$GITHUB_ENV"
+    - uses: actions/setup-node@v7
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+    - name: Install dependencies
+      shell: bash
+      run: npm ci
+    - name: Build
+      shell: bash
+      run: npm run build
+    - name: Run accessibility tests
+      shell: bash
+      run: npm run test:a11y
