@@ -33,12 +33,25 @@ runs:
     - uses: actions/setup-node@v7
       with:
         node-version: ${{ env.NODE_VERSION }}
+    - name: Detect package manager
+      id: package-manager
+      shell: bash
+      run: bash "${{ github.action_path }}/../../scripts/detect-package-manager.sh"
+
+    - name: Install pnpm
+      if: env.PACKAGE_MANAGER == 'pnpm'
+      shell: bash
+      run: npm install -g pnpm
+
     - name: Install dependencies
+      if: env.PACKAGE_MANAGER != 'none'
       shell: bash
-      run: npm ci
-    - name: Build
-      shell: bash
-      run: npm run build
+      run: |
+        if [ "$PACKAGE_MANAGER" = "pnpm" ]; then
+          pnpm install --frozen-lockfile
+        else
+          npm ci
+        fi
     - name: Run accessibility tests
       shell: bash
       run: ${{ inputs.command-accessibility }}
