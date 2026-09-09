@@ -44,7 +44,7 @@ jobs:
       - uses: newjersey/innovation-shared-actions/.github/actions/code-coverage@feat/qasp-shared-workflow
         with:
           node-version: ${{ inputs.node-version }}
-          command-test-coverage: ${{ inputs.test-coverage-command }}
+          command-test-coverage: ${{ inputs.command-test-coverage }}
 
   code-quality:
     name: Code quality
@@ -53,7 +53,7 @@ jobs:
       - uses: newjersey/innovation-shared-actions/.github/actions/code-quality@feat/qasp-shared-workflow
         with:
           node-version: ${{ inputs.node-version }}
-          command-linting: ${{ inputs.linting-command }}
+          command-linting: ${{ inputs.command-linting }}
 
   accessibility:
     name: Accessibility
@@ -62,7 +62,7 @@ jobs:
       - uses: newjersey/innovation-shared-actions/.github/actions/accessibility@feat/qasp-shared-workflow
         with:
           node-version: ${{ inputs.node-version }}
-          command-accessibility: ${{ inputs.accessibility-command }}
+          command-accessibility: ${{ inputs.command-accessibility }}
 
   deployment:
     name: Deployment
