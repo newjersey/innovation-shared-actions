@@ -3,6 +3,10 @@ description: >-
   QASP code quality check — installs dependencies and lints with warnings
   treated as errors.
 inputs:
+  linting-command:
+    description: "Command to run for linting"
+    required: true
+    default: "npm run lint -- --max-warnings=0"
   node-version:
     description: "Node version to use (e.g., '26') or a file path (e.g., '.nvmrc')"
     required: false
@@ -29,4 +33,4 @@ runs:
       run: npm ci
     - name: Lint
       shell: bash
-      run: npm run lint -- --error-on-warnings
+      run: ${{ inputs.linting-command }}

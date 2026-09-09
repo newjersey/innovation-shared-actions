@@ -43,6 +43,7 @@ jobs:
       - uses: newjersey/innovation-shared-actions/.github/actions/code-quality@feat/qasp-shared-workflow
         with:
           node-version: ${{ inputs.node-version }}
+          linting-command: ${{ inputs.linting-command }}
 
   accessibility:
     name: Accessibility
