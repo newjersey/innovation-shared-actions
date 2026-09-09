@@ -21,6 +21,11 @@ on:
         required: false
         default: "npm run test:coverage"
         type: string
+      linting-command:
+        description: "Command to run for linting (default: 'npm run lint -- --max-warnings=0')"
+        required: false
+        default: "npm run lint -- --max-warnings=0"
+        type: string
     secrets:
       OOI_PULL_REQUEST_APP:
         description: "Private key for the GitHub App (app-id 2454947)"
