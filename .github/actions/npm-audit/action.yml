@@ -41,9 +41,12 @@ runs:
 
     - name: Checkout install-dependencies action
       uses: actions/checkout@v7
+      env:
+        ACTION_REPOSITORY: ${{ github.action_repository }}
+        ACTION_REF: ${{ github.action_ref }}
       with:
-        repository: ${{ github.action_repository }}
-        ref: ${{ github.action_ref }}
+        repository: ${{ env.ACTION_REPOSITORY }}
+        ref: ${{ env.ACTION_REF }}
         path: .install-dependencies-action
         sparse-checkout: .github/actions/install-dependencies
 
