@@ -42,16 +42,7 @@ runs:
     - name: Detect package manager
       id: package-manager
       shell: bash
-      run: |
-        if [ -f pnpm-lock.yaml ]; then
-          PACKAGE_MANAGER="pnpm"
-        elif [ -f package-lock.json ]; then
-          PACKAGE_MANAGER="npm"
-        else
-          PACKAGE_MANAGER="none"
-          echo "No package-lock.json or pnpm-lock.yaml found. Skipping dependency installation and audit."
-        fi
-        echo "PACKAGE_MANAGER=$PACKAGE_MANAGER" >> $GITHUB_ENV
+      run: bash "${{ github.action_path }}/../../scripts/detect-package-manager.sh"
 
     - name: Install pnpm
       if: env.PACKAGE_MANAGER == 'pnpm'
