@@ -16,15 +16,20 @@ on:
         required: false
         default: ".nvmrc"
         type: string
-      test-coverage-command:
+      command-test-coverage:
         description: "Command to run for test coverage (default: 'npm run test:coverage')"
         required: false
         default: "npm run test:coverage"
         type: string
-      linting-command:
+      command-linting:
         description: "Command to run for linting (default: 'npm run lint -- --max-warnings=0')"
         required: false
         default: "npm run lint -- --max-warnings=0"
+        type: string
+      command-accessibility:
+        description: "Command to run for accessibility testing (default: 'npm run test:accessibility')"
+        required: false
+        default: "npm run test:accessibility"
         type: string
     secrets:
       OOI_PULL_REQUEST_APP:
@@ -39,7 +44,7 @@ jobs:
       - uses: newjersey/innovation-shared-actions/.github/actions/code-coverage@feat/qasp-shared-workflow
         with:
           node-version: ${{ inputs.node-version }}
-          test-coverage-command: ${{ inputs.test-coverage-command }}
+          command-test-coverage: ${{ inputs.test-coverage-command }}
 
   code-quality:
     name: Code quality
@@ -48,7 +53,7 @@ jobs:
       - uses: newjersey/innovation-shared-actions/.github/actions/code-quality@feat/qasp-shared-workflow
         with:
           node-version: ${{ inputs.node-version }}
-          linting-command: ${{ inputs.linting-command }}
+          command-linting: ${{ inputs.linting-command }}
 
   accessibility:
     name: Accessibility
@@ -57,6 +62,7 @@ jobs:
       - uses: newjersey/innovation-shared-actions/.github/actions/accessibility@feat/qasp-shared-workflow
         with:
           node-version: ${{ inputs.node-version }}
+          command-accessibility: ${{ inputs.accessibility-command }}
 
   deployment:
     name: Deployment

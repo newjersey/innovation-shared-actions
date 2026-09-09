@@ -12,6 +12,10 @@ inputs:
     description: "Node version to use (e.g., '26') or a file path (e.g., '.nvmrc')"
     required: false
     default: ".nvmrc"
+  command-accessibility:
+    description: "Command to run for accessibility testing (default: 'npm run test:accessibility')"
+    required: false
+    default: "npm run test:accessibility"
 
 runs:
   using: "composite"
@@ -37,4 +41,4 @@ runs:
       run: npm run build
     - name: Run accessibility tests
       shell: bash
-      run: npm run test:a11y
+      run: ${{ inputs.command-accessibility }}
