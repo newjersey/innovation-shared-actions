@@ -39,6 +39,15 @@ runs:
         node-version: ${{ env.NODE_VERSION }}
         cache: '' # disable auto-caching because npm vs. pnpm
 
+    - name: Debug action context
+      shell: bash
+      run: |
+        echo "github.action_repository: '${{ github.action_repository }}'"
+        echo "github.action_ref: '${{ github.action_ref }}'"
+        echo "github.action: '${{ github.action }}'"
+        echo "github.action_path: '${{ github.action_path }}'"
+        echo "github.repository: '${{ github.repository }}'"
+
     - name: Checkout install-dependencies action
       uses: actions/checkout@v7
       env:
