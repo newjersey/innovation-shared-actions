@@ -34,7 +34,9 @@ jobs:
           repository: ${{ job.workflow_repository }}
           ref: ${{ job.workflow_sha }}
           path: .npm-audit-action
-          sparse-checkout: .github/actions/npm-audit
+          sparse-checkout: |
+            .github/actions/npm-audit
+            .github/scripts
 
       - name: Run npm audit
         id: audit-status
