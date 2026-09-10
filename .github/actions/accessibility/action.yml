@@ -5,7 +5,7 @@ description: >-
   UI" across arbitrary codebases, so this action doesn't try — a missing
   script fails loudly instead of silently passing. Projects with no UI
   should still add the script as an explicit, visible no-op (e.g.
-  "test:a11y": "echo 'No UI in this project' && exit 0") so the N/A
+  "test:accessibility": "echo 'No UI in this project' && exit 0") so the N/A
   determination is a human decision, not an inferred one.
 inputs:
   node-version:
@@ -33,6 +33,7 @@ runs:
     - uses: actions/setup-node@v7
       with:
         node-version: ${{ env.NODE_VERSION }}
+    
     - name: Detect package manager
       id: package-manager
       shell: bash
@@ -52,6 +53,7 @@ runs:
         else
           npm ci
         fi
+
     - name: Install Playwright browsers
       shell: bash
       run: npx playwright install --with-deps
