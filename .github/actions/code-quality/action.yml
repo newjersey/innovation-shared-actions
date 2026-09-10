@@ -1,7 +1,6 @@
 name: "Code Quality"
 description: >-
-  QASP code quality check — installs dependencies and lints with warnings
-  treated as errors.
+  QASP code quality check — installs dependencies and lints code.
 inputs:
   command-linting:
     description: "Command to run for linting"
@@ -28,6 +27,7 @@ runs:
     - uses: actions/setup-node@v7
       with:
         node-version: ${{ env.NODE_VERSION }}
+
     - name: Detect package manager
       id: package-manager
       shell: bash
@@ -47,6 +47,7 @@ runs:
         else
           npm ci
         fi
+
     - name: Lint
       shell: bash
       run: ${{ inputs.command-linting }}
