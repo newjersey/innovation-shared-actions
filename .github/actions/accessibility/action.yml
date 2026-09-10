@@ -54,7 +54,7 @@ runs:
         fi
     - name: Install Playwright browsers
       shell: bash
-      run: npx playwright install --with-deps)
+      run: npx playwright install --with-deps
 
     - name: Run accessibility tests
       shell: bash
