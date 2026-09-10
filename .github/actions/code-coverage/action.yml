@@ -1,0 +1,54 @@
+name: "Code Coverage"
+description: >-
+  QASP code coverage check — installs dependencies and runs the
+  project's coverage test script.
+inputs:
+  node-version:
+    description: "Node version to use (e.g., '26') or a file path (e.g., '.nvmrc')"
+    required: false
+    default: ".nvmrc"
+  command-test-coverage:
+    description: "Command to run for test coverage (default: 'npm run test:coverage')"
+    required: false
+    default: "npm run test:coverage"
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/checkout@v7
+    - name: Determine Node version
+      shell: bash
+      run: |
+        if [ -f "${{ inputs.node-version }}" ]; then
+          NODE_VERSION=$(cat "${{ inputs.node-version }}" | tr -d '[:space:]')
+        else
+          NODE_VERSION="${{ inputs.node-version }}"
+        fi
+        echo "NODE_VERSION=$NODE_VERSION" >> "$GITHUB_ENV"
+    - uses: actions/setup-node@v7
+      with:
+        node-version: ${{ env.NODE_VERSION }}
+
+    - name: Detect package manager
+      id: package-manager
+      shell: bash
+      run: bash "${{ github.action_path }}/../../scripts/detect-package-manager.sh"
+
+    - name: Install pnpm
+      if: env.PACKAGE_MANAGER == 'pnpm'
+      shell: bash
+      run: npm install -g pnpm
+
+    - name: Install dependencies
+      if: env.PACKAGE_MANAGER != 'none'
+      shell: bash
+      run: |
+        if [ "$PACKAGE_MANAGER" = "pnpm" ]; then
+          pnpm install --frozen-lockfile
+        else
+          npm ci
+        fi
+
+    - name: Run coverage
+      shell: bash
+      run: ${{ inputs.command-test-coverage }}

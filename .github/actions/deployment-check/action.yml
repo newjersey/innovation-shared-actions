@@ -1,0 +1,31 @@
+name: "Deployment check"
+description: >-
+  QASP deployment check. Verifies a deployment target is reachable rather
+  than trying to know how any given project deploys (Amplify, ECS,
+  CDK/Lambda, npm publish, ...). A URL here can be a staging health-check
+  endpoint or an npm registry URL (unversioned, so it doesn't need editing
+  on every version bump) — the check only proves "this has been
+  deployed/published at some point," not that the latest commit is what's
+  live.
+inputs:
+  check-urls:
+    description: "One URL per line: a staging health-check endpoint, an npm registry URL (unversioned), etc."
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Verify deployment target(s) are reachable
+      shell: bash
+      env:
+        CHECK_URLS: ${{ inputs.check-urls }}
+      run: |
+        if [ -z "$CHECK_URLS" ]; then
+          echo "::error::No check-urls configured. Provide at least one URL (staging health-check endpoint, npm registry URL, etc.)."
+          exit 1
+        fi
+        while IFS= read -r url; do
+          [ -z "$url" ] && continue
+          echo "Checking $url"
+          curl --fail --silent --show-error "$url" > /dev/null
+        done <<< "$CHECK_URLS"

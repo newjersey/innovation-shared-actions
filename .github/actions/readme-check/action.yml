@@ -1,0 +1,20 @@
+name: "README check"
+description: >-
+  QASP documentation-human-review-required check. A green check here means
+  a README.md with content exists — it does not mean a human has reviewed
+  it for plain-language clarity. The name says so on purpose so a reviewer
+  doesn't mistake "passed" for "already judged."
+
+runs:
+  using: "composite"
+  steps:
+    - uses: actions/checkout@v7
+    - name: README.md present (requires human review of content)
+      shell: bash
+      run: |
+        if [ -s README.md ]; then
+          echo "README.md present ($(wc -l < README.md) lines) — still needs human review for plain-language clarity."
+        else
+          echo "::error::README.md is missing or empty."
+          exit 1
+        fi
