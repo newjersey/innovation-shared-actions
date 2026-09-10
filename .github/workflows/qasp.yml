@@ -41,7 +41,7 @@ jobs:
     name: Code coverage
     runs-on: ubuntu-latest
     steps:
-      - uses: newjersey/innovation-shared-actions/.github/actions/code-coverage@feat/qasp-shared-workflow
+      - uses: newjersey/innovation-shared-actions/.github/actions/code-coverage@main
         with:
           node-version: ${{ inputs.node-version }}
           command-test-coverage: ${{ inputs.command-test-coverage }}
@@ -50,7 +50,7 @@ jobs:
     name: Code quality
     runs-on: ubuntu-latest
     steps:
-      - uses: newjersey/innovation-shared-actions/.github/actions/code-quality@feat/qasp-shared-workflow
+      - uses: newjersey/innovation-shared-actions/.github/actions/code-quality@main
         with:
           node-version: ${{ inputs.node-version }}
           command-linting: ${{ inputs.command-linting }}
@@ -59,7 +59,7 @@ jobs:
     name: Accessibility
     runs-on: ubuntu-latest
     steps:
-      - uses: newjersey/innovation-shared-actions/.github/actions/accessibility@feat/qasp-shared-workflow
+      - uses: newjersey/innovation-shared-actions/.github/actions/accessibility@main
         with:
           node-version: ${{ inputs.node-version }}
           command-accessibility: ${{ inputs.command-accessibility }}
@@ -68,7 +68,7 @@ jobs:
     name: Deployment
     runs-on: ubuntu-latest
     steps:
-      - uses: newjersey/innovation-shared-actions/.github/actions/deployment-check@feat/qasp-shared-workflow
+      - uses: newjersey/innovation-shared-actions/.github/actions/deployment-check@main
         with:
           check-urls: ${{ inputs.deployment-check-urls }}
 
@@ -76,13 +76,13 @@ jobs:
     name: Documentation (needs human review)
     runs-on: ubuntu-latest
     steps:
-      - uses: newjersey/innovation-shared-actions/.github/actions/license-check@feat/qasp-shared-workflow
+      - uses: newjersey/innovation-shared-actions/.github/actions/license-check@main
         with:
           node-version: ${{ inputs.node-version }}
       - if: ${{ !cancelled() }}
-        uses: newjersey/innovation-shared-actions/.github/actions/readme-check@feat/qasp-shared-workflow
+        uses: newjersey/innovation-shared-actions/.github/actions/readme-check@main
       - if: ${{ !cancelled() }}
-        uses: newjersey/innovation-shared-actions/.github/actions/system-diagram-check@feat/qasp-shared-workflow
+        uses: newjersey/innovation-shared-actions/.github/actions/system-diagram-check@main
         with:
           diagram-location: ${{ inputs.system-diagram-location }}
 
@@ -96,17 +96,17 @@ jobs:
         with:
           client-id: "2454947"
           private-key: ${{ secrets.OOI_PULL_REQUEST_APP }}
-      - uses: newjersey/innovation-shared-actions/.github/actions/code-scanning-alerts@feat/qasp-shared-workflow
+      - uses: newjersey/innovation-shared-actions/.github/actions/code-scanning-alerts@main
         with:
           github-token: ${{ steps.generate-token.outputs.token }}
       - if: ${{ !cancelled() && steps.generate-token.outcome == 'success' }}
-        uses: newjersey/innovation-shared-actions/.github/actions/secret-scanning-alerts@feat/qasp-shared-workflow
+        uses: newjersey/innovation-shared-actions/.github/actions/secret-scanning-alerts@main
         with:
           github-token: ${{ steps.generate-token.outputs.token }}
       - if: ${{ !cancelled() }}
         uses: actions/checkout@v7
       - if: ${{ !cancelled() }}
-        uses: newjersey/innovation-shared-actions/.github/actions/npm-audit@feat/qasp-shared-workflow
+        uses: newjersey/innovation-shared-actions/.github/actions/npm-audit@main
         with:
           node-version: ${{ inputs.node-version }}
           audit-level: "critical"
