@@ -40,6 +40,8 @@ jobs:
   code-coverage:
     name: Code coverage
     runs-on: ubuntu-latest
+    outputs:
+      coverage_status: ${{ steps.set_status.outputs.status }}
     steps:
       - uses: newjersey/innovation-shared-actions/.github/actions/code-coverage@main
         with:
@@ -113,8 +115,15 @@ jobs:
 
   alert-slack:
     uses: newjersey/innovation-shared-actions/.github/workflows/slack.yml@main
+    needs:
+      - code-coverage
+      - code-quality
+      - accessibility
+      - deployment
+      - documentation
+      - security-alerts
     with:
         channel_id: C09Q36G9HMX #sandbox
-        message: "message coming from the QASP workflow"
-        thread_message: "nested message content" # optional
+        message: "[QASP workflow completed for ${{ github.repository }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+        thread_message: "Code coverage: ${{ needs.code-coverage.outputs.coverage_status }}" # optional
     secrets: inherit
