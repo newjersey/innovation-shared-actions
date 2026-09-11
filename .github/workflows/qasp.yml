@@ -112,7 +112,9 @@ jobs:
           audit-level: "critical"
 
   alert-slack:
+    name: Notify Slack
     uses: newjersey/innovation-shared-actions/.github/workflows/slack.yml@main
+    if: ${{ !cancelled() }} 
     needs:
       - code-coverage
       - code-quality
