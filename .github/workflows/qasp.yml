@@ -125,12 +125,5 @@ jobs:
     with:
         channel_id: C09Q36G9HMX #sandbox
         message: "[QASP workflow completed for ${{ github.repository }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-        thread_message: |
-          *Job Results:*
-          • Code Coverage: ${{ needs.code-coverage.result == 'success' && 'pass' || 'fail' }}
-          • Code Quality: ${{ needs.code-quality.result == 'success' && 'pass' || 'fail' }}
-          • Accessibility: ${{ needs.accessibility.result == 'success' && 'pass' || 'fail' }}
-          • Deployment: ${{ needs.deployment.result == 'success' && 'pass' || 'fail' }}
-          • Documentation: ${{ needs.documentation.result == 'success' && 'pass' || 'fail' }}
-          • Security Alerts: ${{ needs.security-alerts.result == 'success' && 'pass' || 'fail' }}
+        thread_message: "*Job Results:*\n• Code Coverage: ${{ needs.code-coverage.result == 'success' && 'pass' || 'fail' }}\n• Code Quality: ${{ needs.code-quality.result == 'success' && 'pass' || 'fail' }}\n• Accessibility: ${{ needs.accessibility.result == 'success' && 'pass' || 'fail' }}\n• Deployment: ${{ needs.deployment.result == 'success' && 'pass' || 'fail' }}\n• Documentation: ${{ needs.documentation.result == 'success' && 'pass' || 'fail' }}\n• Security Alerts: ${{ needs.security-alerts.result == 'success' && 'pass' || 'fail' }}"
     secrets: inherit
