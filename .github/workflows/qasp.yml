@@ -110,3 +110,11 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
           audit-level: "critical"
+
+  alert-slack:
+    uses: newjersey/innovation-shared-actions/.github/workflows/slack.yml@main
+    with:
+        channel_id: C09Q36G9HMX #sandbox
+        message: "message coming from the QASP workflow"
+        thread_message: "nested message content" # optional
+    secrets: inherit
