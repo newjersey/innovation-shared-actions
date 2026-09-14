@@ -12,7 +12,7 @@ jobs:
     permissions:
       contents: read
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - name: "Build GitHub to Slack user mapping"
         id: build-user-map
         uses: ./.github/actions/build-github-slack-user-map

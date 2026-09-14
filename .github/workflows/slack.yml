@@ -59,7 +59,7 @@ jobs:
     outputs:
       message_ts: ${{ steps.slack.outputs.message_ts }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           repository: newjersey/innovation-shared-actions
       - name: Send Slack message
