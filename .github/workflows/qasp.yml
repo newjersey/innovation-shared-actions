@@ -111,10 +111,10 @@ jobs:
           node-version: ${{ inputs.node-version }}
           audit-level: "critical"
 
-  alert-slack:
-    name: Notify Slack
-    uses: newjersey/innovation-shared-actions/.github/workflows/slack.yml@main
-    if: ${{ !cancelled() }} 
+  build-alert-message:
+    name: Build Slack alert message
+    runs-on: ubuntu-latest
+    if: ${{ !cancelled() }}
     needs:
       - code-coverage
       - code-quality
@@ -122,8 +122,48 @@ jobs:
       - deployment
       - documentation
       - security-alerts
+    outputs:
+      thread_message: ${{ steps.build.outputs.thread_message }}
+    steps:
+      # The slack-message action can't accept a multi-line thread_message, so
+      # only the failing job names are reported, joined on a single line.
+      - name: List failed jobs
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          failed=()
+          add_result() {
+            if [ "$2" != "success" ]; then
+              failed+=("$1")
+            fi
+          }
+
+          add_result "Code Coverage" "${{ needs.code-coverage.result }}"
+          add_result "Code Quality" "${{ needs.code-quality.result }}"
+          add_result "Accessibility" "${{ needs.accessibility.result }}"
+          add_result "Deployment" "${{ needs.deployment.result }}"
+          add_result "Documentation" "${{ needs.documentation.result }}"
+          add_result "Security Alerts" "${{ needs.security-alerts.result }}"
+
+          if [ ${#failed[@]} -eq 0 ]; then
+            thread_message=""
+          else
+            joined=$(printf ", %s" "${failed[@]}")
+            thread_message="Failed: ${joined:2}"
+          fi
+
+          echo "thread_message=$thread_message" >> "$GITHUB_OUTPUT"
+
+  alert-slack:
+    name: Notify Slack
+    uses: newjersey/innovation-shared-actions/.github/workflows/slack.yml@main
+    if: ${{ !cancelled() }}
+    needs:
+      - build-alert-message
     with:
         channel_id: C09Q36G9HMX #sandbox
         message: "[QASP workflow completed for ${{ github.repository }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-        thread_message: "*Job Results:*\n• Code Coverage: ${{ needs.code-coverage.result == 'success' && 'pass' || 'fail' }}\n• Code Quality: ${{ needs.code-quality.result == 'success' && 'pass' || 'fail' }}\n• Accessibility: ${{ needs.accessibility.result == 'success' && 'pass' || 'fail' }}\n• Deployment: ${{ needs.deployment.result == 'success' && 'pass' || 'fail' }}\n• Documentation: ${{ needs.documentation.result == 'success' && 'pass' || 'fail' }}\n• Security Alerts: ${{ needs.security-alerts.result == 'success' && 'pass' || 'fail' }}"
+        thread_message: ${{ needs.build-alert-message.outputs.thread_message }}
     secrets: inherit
