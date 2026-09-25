@@ -10,7 +10,7 @@ description: >-
 inputs:
   check-urls:
     description: "One URL per line: a staging health-check endpoint, an npm registry URL (unversioned), etc."
-    required: true
+    required: false
 
 runs:
   using: "composite"
