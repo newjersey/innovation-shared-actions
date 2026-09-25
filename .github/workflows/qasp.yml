@@ -148,7 +148,7 @@ jobs:
           add_result "Security Alerts" "${{ needs.security-alerts.result }}"
 
           if [ ${#failed[@]} -eq 0 ]; then
-            thread_message=""
+            thread_message="All checks passed!"
           else
             joined=$(printf ", %s" "${failed[@]}")
             thread_message="Failed: ${joined:2}"
@@ -164,6 +164,6 @@ jobs:
       - build-alert-message
     with:
         channel_id: C09Q36G9HMX #sandbox
-        message: "[QASP workflow completed for ${{ github.repository }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+        message: "QASP workflow completed for [${{ github.repository }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
         thread_message: ${{ needs.build-alert-message.outputs.thread_message }}
     secrets: inherit
