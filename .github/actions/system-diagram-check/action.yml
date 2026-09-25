@@ -6,7 +6,7 @@ description: >-
 inputs:
   diagram-location:
     description: "Filepath or URL pointing at the current system diagram."
-    required: true
+    required: false
 
 runs:
   using: "composite"
