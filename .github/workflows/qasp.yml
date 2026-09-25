@@ -159,7 +159,7 @@ jobs:
   alert-slack:
     name: Notify Slack
     uses: newjersey/innovation-shared-actions/.github/workflows/slack.yml@main
-    if: ${{ !cancelled() }}
+    if: ${{ failure() && !cancelled() }}
     needs:
       - build-alert-message
     with:
