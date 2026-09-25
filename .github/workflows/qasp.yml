@@ -92,7 +92,7 @@ jobs:
     steps:
       - name: Generate GitHub app token
         id: generate-token
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@v3.2.0
         with:
           client-id: "2454947"
           private-key: ${{ secrets.OOI_PULL_REQUEST_APP }}
