@@ -5,11 +5,11 @@ on:
     inputs:
       deployment-check-urls:
         description: "One URL per line: a staging health-check endpoint, an npm registry URL (unversioned), etc. Only checked for a successful response."
-        required: true
+        required: false
         type: string
       system-diagram-location:
         description: "Filepath or URL pointing at the current system diagram. Not checked for reachability — only confirms someone provided a location, not that it's accurate."
-        required: true
+        required: false
         type: string
       node-version:
         description: "Node version to use (e.g., '26') or a file path (e.g., '.nvmrc')"
