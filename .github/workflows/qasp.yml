@@ -31,6 +31,11 @@ on:
         required: false
         default: "npm run test:accessibility"
         type: string
+      slack-channel:
+        description: "Slack channel ID to post notifications to (e.g., 'C09Q36G9HMX')"
+        required: false
+        default: "C09Q36G9HMX" #sandbox
+        type: string
       ref:
         description: "Branch, tag, or SHA to checkout for every check that checks out the caller's repo. Defaults to the triggering ref when omitted (same as actions/checkout's own default) — useful for a scheduled trigger, which otherwise always runs against the default branch."
         required: false
@@ -175,7 +180,7 @@ jobs:
     needs:
       - build-alert-message
     with:
-        channel_id: C09Q36G9HMX #sandbox
+        channel_id: ${{ inputs.slack-channel }}
         message: "QASP workflow completed for [${{ github.repository }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})"
         thread_message: ${{ needs.build-alert-message.outputs.thread_message }}
     secrets: inherit
