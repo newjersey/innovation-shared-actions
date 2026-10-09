@@ -4,11 +4,17 @@ description: >-
   a README.md with content exists — it does not mean a human has reviewed
   it for plain-language clarity. The name says so on purpose so a reviewer
   doesn't mistake "passed" for "already judged."
+inputs:
+  ref:
+    description: "Branch/tag/SHA to checkout. Defaults to the triggering ref when omitted (same as actions/checkout's own default)."
+    required: false
 
 runs:
   using: "composite"
   steps:
     - uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.ref }}
     - name: README.md present (requires human review of content)
       shell: bash
       run: |

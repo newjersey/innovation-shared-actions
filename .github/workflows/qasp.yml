@@ -31,6 +31,10 @@ on:
         required: false
         default: "npm run test:accessibility"
         type: string
+      ref:
+        description: "Branch, tag, or SHA to checkout for every check that checks out the caller's repo. Defaults to the triggering ref when omitted (same as actions/checkout's own default) — useful for a scheduled trigger, which otherwise always runs against the default branch."
+        required: false
+        type: string
     secrets:
       OOI_PULL_REQUEST_APP:
         description: "Private key for the GitHub App (app-id 2454947)"
@@ -45,6 +49,7 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
           command-test-coverage: ${{ inputs.command-test-coverage }}
+          ref: ${{ inputs.ref }}
 
   code-quality:
     name: Code quality
@@ -54,6 +59,7 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
           command-linting: ${{ inputs.command-linting }}
+          ref: ${{ inputs.ref }}
 
   accessibility:
     name: Accessibility
@@ -63,6 +69,7 @@ jobs:
         with:
           node-version: ${{ inputs.node-version }}
           command-accessibility: ${{ inputs.command-accessibility }}
+          ref: ${{ inputs.ref }}
 
   deployment:
     name: Deployment
@@ -79,8 +86,11 @@ jobs:
       - uses: newjersey/innovation-shared-actions/.github/actions/license-check@main
         with:
           node-version: ${{ inputs.node-version }}
+          ref: ${{ inputs.ref }}
       - if: ${{ !cancelled() }}
         uses: newjersey/innovation-shared-actions/.github/actions/readme-check@main
+        with:
+          ref: ${{ inputs.ref }}
       - if: ${{ !cancelled() }}
         uses: newjersey/innovation-shared-actions/.github/actions/system-diagram-check@main
         with:
@@ -105,6 +115,8 @@ jobs:
           github-token: ${{ steps.generate-token.outputs.token }}
       - if: ${{ !cancelled() }}
         uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
       - if: ${{ !cancelled() }}
         uses: newjersey/innovation-shared-actions/.github/actions/npm-audit@main
         with:
