@@ -34,7 +34,7 @@ on:
       slack-channel:
         description: "Slack channel ID to post notifications to (e.g., 'C09Q36G9HMX')"
         required: false
-        default: "C09Q36G9HMX" #sandbox
+        default: "C09JQ95350U" #resx-agile-services-approvals
         type: string
       ref:
         description: "Branch, tag, or SHA to checkout for every check that checks out the caller's repo. Defaults to the triggering ref when omitted (same as actions/checkout's own default) — useful for a scheduled trigger, which otherwise always runs against the default branch."
