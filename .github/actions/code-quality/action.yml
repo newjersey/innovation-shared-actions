@@ -10,11 +10,16 @@ inputs:
     description: "Node version to use (e.g., '26') or a file path (e.g., '.nvmrc')"
     required: false
     default: ".nvmrc"
+  ref:
+    description: "Branch/tag/SHA to checkout. Defaults to the triggering ref when omitted (same as actions/checkout's own default)."
+    required: false
 
 runs:
   using: "composite"
   steps:
     - uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.ref }}
     - name: Determine Node version
       shell: bash
       run: |
