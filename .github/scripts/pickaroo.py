@@ -66,7 +66,7 @@ def build_main_message(
     message = (
         f"[ <{pr_url}|PR {pr_type}> ] {repo_name} - #{pr_number} by {author_mention}:"
         r"\n"
-        f"**{pr_title}**"
+        f"**{pr_title.strip()}**"
     )
     if all_reviewer_mentions:
         message += r"\n" + f"Reviewers: {all_reviewer_mentions}"
