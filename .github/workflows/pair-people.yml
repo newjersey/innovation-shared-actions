@@ -1,0 +1,41 @@
+name: "Pair People"
+
+on:
+    workflow_dispatch:
+        inputs:
+            channel_id:
+                required: true
+                description: The Slack Channel ID to get users from
+                type: string
+    push:
+        branches:
+            - "maybe-olive-garden"
+#   workflow_call:
+#     secrets:
+#       SLACK_OAUTH_TOKEN:
+#         required: false
+
+jobs:
+  pair-people:
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          repository: newjersey/innovation-shared-actions
+
+      - name: Get users in channel - wip, this currently just gets everyone (our token doesn't currently have permissions on channels)
+        id: get-users
+        shell: bash
+        run: python .github/scripts/slack.py cmd-get-users-discipline-initiative
+        env:
+            TOKEN: ${{ secrets.SLACK_OAUTH_TOKEN }}
+            DISCIPLINE_FIELD: "Xf072GBFRH8U"
+            INITIATIVE_FIELD: "Xf072SH5QW3T"
+            # CHANNEL_ID: ${{ inputs.channel_id }}
+
+      - name: Pair People
+        run: python .github/scripts/pair_people.py pair-people
+        env:
+            TOKEN: ${{ secrets.SLACK_OAUTH_TOKEN }}
+            USERS_DISCIPLINE_INITIATIVE_MAP: ${{ steps.get-users.outputs.users-discipline-initiative-map }}

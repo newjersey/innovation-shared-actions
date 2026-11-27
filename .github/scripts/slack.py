@@ -87,7 +87,10 @@ def update_message(
 
     response = requests.post(
         "https://slack.com/api/chat.update",
-        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
         json=payload,
     )
     response.raise_for_status()
@@ -165,6 +168,48 @@ def list_users(token: str) -> list[str]:
 
         response = requests.get(
             "https://slack.com/api/users.list",
+            headers={"Authorization": f"Bearer {token}"},
+            params=params,
+        )
+        response.raise_for_status()
+        data = response.json()
+
+        if not data.get("ok"):
+            raise RuntimeError(f"Slack API error: {data.get('error', 'unknown')}")
+
+        for member in data.get("members", []):
+            if (
+                not member.get("deleted", False)
+                and not member.get("is_bot", False)
+                and member.get("name") != "slackbot"
+            ):
+                all_ids.append(member["id"])
+
+        cursor = data.get("response_metadata", {}).get("next_cursor", "")
+        if not cursor:
+            break
+
+    return all_ids
+
+
+# FIXME: doesn't currently work because or token doesn't have permissions on channels
+def list_users_in_channel(token: str, channel_id: str) -> list[str]:
+    """Fetch all active, non-bot user IDs from Slack via users.list (paginated).
+
+    Excludes deleted users, bots, and slackbot.
+
+    https://docs.slack.dev/reference/methods/conversations.members/
+    """
+    all_ids = []
+    cursor = ""
+
+    while True:
+        params = {"channel": channel_id, "limit": "300"}
+        if cursor:
+            params["cursor"] = cursor
+
+        response = requests.get(
+            "https://slack.com/api/conversations.members",
             headers={"Authorization": f"Bearer {token}"},
             params=params,
         )
@@ -327,7 +372,9 @@ def cmd_map_github_to_slack():
             print(f"  Skipping {user_id}: {e}")
             continue
 
-        display_name = profile.get("display_name") or profile.get("real_name") or "Unknown"
+        display_name = (
+            profile.get("display_name") or profile.get("real_name") or "Unknown"
+        )
         fields = profile.get("fields") or {}
 
         github_username = ""
@@ -339,12 +386,16 @@ def cmd_map_github_to_slack():
             backup = fields.get(backup_field, {})
             backup_value = backup.get("value", "") if backup else ""
             if backup_value:
-                match = re.search(r"(?:GH|GitHub):\s*([A-Za-z0-9_-]+)", backup_value, re.IGNORECASE)
+                match = re.search(
+                    r"(?:GH|GitHub):\s*([A-Za-z0-9_-]+)", backup_value, re.IGNORECASE
+                )
                 if match:
                     github_username = match.group(1)
 
         if github_username:
-            print(f"  Found GitHub username for {display_name} ({user_id}): {github_username}")
+            print(
+                f"  Found GitHub username for {display_name} ({user_id}): {github_username}"
+            )
             github_slack_map[github_username] = {
                 "id": user_id,
                 "username": display_name,
@@ -355,6 +406,59 @@ def cmd_map_github_to_slack():
     if github_output:
         with open(github_output, "a") as f:
             f.write(f"github-slack-mapping={json.dumps(github_slack_map)}\n")
+
+
+def cmd_get_users_discipline_initiative():
+    """Build a GitHub-to-Slack user mapping from Slack profile fields.
+
+    Fetches all active users, reads their profiles, and extracts GitHub
+    usernames from configured profile fields. Outputs a JSON mapping to
+    GITHUB_OUTPUT as 'github-slack-mapping'.
+
+    Env vars:
+      TOKEN: Slack OAuth token
+      SLACK_FIELD: Profile field key containing GitHub username
+      BACKUP_FIELD: (optional) Fallback field to regex-match "GH: <username>"
+      GITHUB_OUTPUT: Path to GitHub Actions output file
+    """
+    token = os.environ["TOKEN"]
+    discipline_field = os.environ["DISCIPLINE_FIELD"]
+    initiative_field = os.environ.get("INITIATIVE_FIELD", "")
+    github_output = os.environ.get("GITHUB_OUTPUT", "")
+
+    # FIXME: after we have permissions, call list_users_in_channel instead
+    user_ids = list_users(token)
+    print(f"Found {len(user_ids)} users in channel")
+
+    users_discipline_initiative_map = {}
+
+    for user_id in user_ids:
+        try:
+            profile = get_profile(token, user_id)
+        except RuntimeError as e:
+            print(f"  Skipping {user_id}: {e}")
+            continue
+
+        display_name = (
+            profile.get("display_name") or profile.get("real_name") or "Unknown"
+        )
+        fields = profile.get("fields") or {}
+
+        discipline = fields.get(discipline_field, {}).get("value", "")
+        initiative = fields.get(initiative_field, {}).get("value", "")
+
+        users_discipline_initiative_map[user_id] = {
+            "discipline": discipline,
+            "initiative": initiative,
+            "display_name": display_name,
+        }
+
+    print(f"Mapped {len(users_discipline_initiative_map.keys())} Slack users")
+    if github_output:
+        with open(github_output, "a") as f:
+            f.write(
+                f"users-discipline-initiative-map={json.dumps(users_discipline_initiative_map)}\n"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -369,6 +473,7 @@ def main():
         "update-message": cmd_update_message,
         "find-message": cmd_find_message,
         "list-users": cmd_list_users,
+        "cmd-get-users-discipline-initiative": cmd_get_users_discipline_initiative,
         "map-github-to-slack": cmd_map_github_to_slack,
     }
     command = sys.argv[1] if len(sys.argv) > 1 else ""
